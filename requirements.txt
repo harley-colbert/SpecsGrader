@@ -1,0 +1,17 @@
+# Core dependencies for Spec Classifier App with Multipass Ensemble
+
+pandas
+scikit-learn
+sentence-transformers
+numpy
+joblib
+openpyxl       # Excel file support
+tk             # Tkinter GUI (may be 'python3-tk' on some Linux distros)
+
+# Optional: For advanced GUI, uncomment pillow
+# pillow
+
+# Notes:
+# - 'tk' is included by default on Windows/Mac with Python.org installers.
+# - If on Linux, you may need to install tk with your system package manager, e.g.:
+#     sudo apt-get install python3-tk

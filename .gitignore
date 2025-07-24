@@ -1,0 +1,55 @@
+# Ignore Python cache and compiled files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Ignore Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore virtual environments
+venv/
+.env/
+.env
+
+# Ignore log files
+*.log
+
+# Ignore IDE/project files
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Ignore your models and data directories (if you don't want to commit large files)
+models/
+data/
+
+# Ignore zip and tarballs
+*.zip
+*.tar.gz
+*.tar
+*.rar
+
+# Ignore test output or temp files
+*.tmp
+*.bak
+*.swp
+
+# Ignore user-generated config files
+*.local
+*.user
+
+# Ignore coverage and test files
+.coverage
+htmlcov/
+dist/
+build/
+
+# Uncomment if you use coverage.py or pytest
+# .pytest_cache/
+# .mypy_cache/
