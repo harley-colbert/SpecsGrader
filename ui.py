@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QGridLayout,
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
     QLabel, QPushButton, QComboBox, QFileDialog, QTextEdit, QMessageBox, QCheckBox,
     QSpinBox, QDoubleSpinBox
 )
@@ -31,98 +31,139 @@ class DualSpecClassifierApp(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
-        layout.setSpacing(14)
+        layout.setSpacing(16)
         layout.setContentsMargins(28, 20, 28, 20)
 
-        grid = QGridLayout()
-        grid.setSpacing(10)
-        layout.addLayout(grid)
-
         # --- Model Set Dropdown ---
+        model_group = QGroupBox("Model Set")
+        model_layout = QFormLayout(model_group)
+        model_layout.setSpacing(8)
+        model_layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        model_layout.setContentsMargins(16, 12, 16, 12)
+
         self.model_label = QLabel("No classifiers loaded")
-        grid.addWidget(self.model_label, 0, 0, 1, 1)
+        model_layout.addRow("Status", self.model_label)
 
         self.model_dropdown = QComboBox()
         self.refresh_model_dropdown()
         self.model_dropdown.currentIndexChanged.connect(self.on_model_select)
-        grid.addWidget(self.model_dropdown, 0, 1, 1, 2)
 
-        self.refresh_model_dropdown_btn = QPushButton("Refresh Model Sets")
+        self.refresh_model_dropdown_btn = QPushButton("Refresh")
         self.refresh_model_dropdown_btn.clicked.connect(self.refresh_model_dropdown)
-        grid.addWidget(self.refresh_model_dropdown_btn, 0, 3, 1, 1)
+
+        model_controls = QHBoxLayout()
+        model_controls.setSpacing(8)
+        model_controls.addWidget(self.model_dropdown, stretch=1)
+        model_controls.addWidget(self.refresh_model_dropdown_btn)
+        model_layout.addRow("Select", model_controls)
+        layout.addWidget(model_group)
 
         # --- Training file selection ---
-        self.train_file_label = QLabel("No labeled training file selected")
-        grid.addWidget(self.train_file_label, 1, 0, 1, 1)
+        training_group = QGroupBox("Training")
+        training_layout = QFormLayout(training_group)
+        training_layout.setSpacing(8)
+        training_layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        training_layout.setContentsMargins(16, 12, 16, 12)
 
+        self.train_file_label = QLabel("No labeled training file selected")
         self.train_browse_btn = QPushButton("Select Training CSV")
         self.train_browse_btn.clicked.connect(self.browse_train_file)
-        grid.addWidget(self.train_browse_btn, 1, 1, 1, 1)
+
+        train_file_controls = QHBoxLayout()
+        train_file_controls.setSpacing(8)
+        train_file_controls.addWidget(self.train_file_label, stretch=1)
+        train_file_controls.addWidget(self.train_browse_btn)
+        training_layout.addRow("Training file", train_file_controls)
 
         self.train_btn = QPushButton("Train Models")
         self.train_btn.setEnabled(False)
         self.train_btn.setProperty("variant", "primary")
         self.train_btn.clicked.connect(self.train_model)
-        grid.addWidget(self.train_btn, 1, 2, 1, 1)
-
-        self.train_status_label = QLabel("")
-        grid.addWidget(self.train_status_label, 2, 0, 1, 4)
 
         self.save_model_set_btn = QPushButton("Save Model Set")
         self.save_model_set_btn.clicked.connect(self.save_model_set_dialog)
-        grid.addWidget(self.save_model_set_btn, 3, 0, 1, 1)
+
+        train_action_controls = QHBoxLayout()
+        train_action_controls.setSpacing(8)
+        train_action_controls.addWidget(self.train_btn)
+        train_action_controls.addWidget(self.save_model_set_btn)
+        train_action_controls.addStretch(1)
+        training_layout.addRow("Actions", train_action_controls)
+
+        self.train_status_label = QLabel("")
+        training_layout.addRow("Status", self.train_status_label)
+        layout.addWidget(training_group)
 
         # --- Classify file selection ---
-        self.classify_file_label = QLabel("No file selected for classification")
-        grid.addWidget(self.classify_file_label, 4, 0, 1, 1)
+        classify_group = QGroupBox("Classification")
+        classify_layout = QFormLayout(classify_group)
+        classify_layout.setSpacing(8)
+        classify_layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        classify_layout.setContentsMargins(16, 12, 16, 12)
 
+        self.classify_file_label = QLabel("No file selected for classification")
         self.classify_browse_btn = QPushButton("Select File to Classify")
         self.classify_browse_btn.clicked.connect(self.browse_classify_file)
-        grid.addWidget(self.classify_browse_btn, 4, 1, 1, 1)
+
+        classify_file_controls = QHBoxLayout()
+        classify_file_controls.setSpacing(8)
+        classify_file_controls.addWidget(self.classify_file_label, stretch=1)
+        classify_file_controls.addWidget(self.classify_browse_btn)
+        classify_layout.addRow("Input file", classify_file_controls)
 
         self.classify_btn = QPushButton("Classify (Multipass)")
         self.classify_btn.setEnabled(False)
         self.classify_btn.setProperty("variant", "primary")
         self.classify_btn.clicked.connect(self.classify_items)
-        grid.addWidget(self.classify_btn, 4, 2, 1, 1)
+        classify_layout.addRow("Run", self.classify_btn)
 
         self.pred_status_label = QLabel("")
-        grid.addWidget(self.pred_status_label, 5, 0, 1, 4)
+        classify_layout.addRow("Status", self.pred_status_label)
+        layout.addWidget(classify_group)
 
         # --- Similarity Controls ---
-        self.sim_checkbox = QCheckBox("Use Vector DB Similarity")
+        similarity_group = QGroupBox("Similarity Settings")
+        similarity_layout = QFormLayout(similarity_group)
+        similarity_layout.setSpacing(8)
+        similarity_layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        similarity_layout.setContentsMargins(16, 12, 16, 12)
+
+        self.sim_checkbox = QCheckBox("Enable Vector DB Similarity")
         self.sim_checkbox.setChecked(True)
         self.sim_checkbox.stateChanged.connect(self.update_similarity_controls)
-        grid.addWidget(self.sim_checkbox, 6, 0, 1, 1)
+        similarity_layout.addRow("Use similarity", self.sim_checkbox)
 
         self.top_k_label = QLabel("Top K")
-        grid.addWidget(self.top_k_label, 6, 1, 1, 1)
-
         self.top_k_spin = QSpinBox()
         self.top_k_spin.setRange(1, 20)
         self.top_k_spin.setValue(5)
-        grid.addWidget(self.top_k_spin, 6, 2, 1, 1)
+        similarity_layout.addRow(self.top_k_label, self.top_k_spin)
 
         self.sim_threshold_label = QLabel("Similarity Threshold")
-        grid.addWidget(self.sim_threshold_label, 6, 3, 1, 1)
-
         self.sim_threshold_spin = QDoubleSpinBox()
         self.sim_threshold_spin.setDecimals(2)
         self.sim_threshold_spin.setSingleStep(0.05)
         self.sim_threshold_spin.setRange(0.0, 1.0)
         self.sim_threshold_spin.setValue(0.55)
-        grid.addWidget(self.sim_threshold_spin, 6, 4, 1, 1)
+        similarity_layout.addRow(self.sim_threshold_label, self.sim_threshold_spin)
+        layout.addWidget(similarity_group)
 
         # --- Results area ---
+        results_group = QGroupBox("Results")
+        results_layout = QVBoxLayout(results_group)
+        results_layout.setSpacing(10)
+        results_layout.setContentsMargins(16, 12, 16, 12)
+
         self.results_box = QTextEdit()
         self.results_box.setReadOnly(True)
-        layout.addWidget(self.results_box, stretch=1)
+        results_layout.addWidget(self.results_box, stretch=1)
 
         self.save_btn = QPushButton("Save Results to CSV")
         self.save_btn.setEnabled(False)
         self.save_btn.setProperty("variant", "primary")
         self.save_btn.clicked.connect(self.save_results)
-        layout.addWidget(self.save_btn)
+        results_layout.addWidget(self.save_btn)
+        layout.addWidget(results_group, stretch=1)
 
         self.update_similarity_controls()
 
