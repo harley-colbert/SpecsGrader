@@ -7,23 +7,14 @@ from PySide6.QtCore import Qt
 import json
 import pandas as pd
 import logic  # Your business logic module
+from ui_theme import LIGHT_THEME, build_stylesheet
 
 class DualSpecClassifierApp(QMainWindow):
     def __init__(self, preloaded=None):
         super().__init__()
         self.setWindowTitle("Risk Level & Review Department Classifier - Multipass Ensemble")
         self.resize(1300, 900)
-        self.setStyleSheet("""
-            QMainWindow { background: #222326; }
-            QLabel, QCheckBox { color: #eaf6fb; font-family: 'Segoe UI', Arial, sans-serif; }
-            QPushButton, QComboBox { font-family: 'Segoe UI', Arial, sans-serif; font-size:14px; }
-            QComboBox, QPushButton { height: 36px; border-radius: 8px; }
-            QPushButton { background: #44c0fa; color: #1e2227; border: none; }
-            QPushButton:disabled { background: #444d56; color: #949ba7; }
-            QComboBox { background: #232629; color: #eaf6fb; }
-            QTextEdit { background: #232629; color: #fff; font-family: Consolas, monospace; font-size:13px; border-radius: 8px; }
-            QCheckBox::indicator { width: 20px; height: 20px; }
-        """)
+        self.setStyleSheet(build_stylesheet(LIGHT_THEME))
 
         # --- State ---
         self.train_csv_path = None
@@ -70,6 +61,7 @@ class DualSpecClassifierApp(QMainWindow):
 
         self.train_btn = QPushButton("Train Models")
         self.train_btn.setEnabled(False)
+        self.train_btn.setProperty("variant", "primary")
         self.train_btn.clicked.connect(self.train_model)
         grid.addWidget(self.train_btn, 1, 2, 1, 1)
 
@@ -90,6 +82,7 @@ class DualSpecClassifierApp(QMainWindow):
 
         self.classify_btn = QPushButton("Classify (Multipass)")
         self.classify_btn.setEnabled(False)
+        self.classify_btn.setProperty("variant", "primary")
         self.classify_btn.clicked.connect(self.classify_items)
         grid.addWidget(self.classify_btn, 4, 2, 1, 1)
 
@@ -127,6 +120,7 @@ class DualSpecClassifierApp(QMainWindow):
 
         self.save_btn = QPushButton("Save Results to CSV")
         self.save_btn.setEnabled(False)
+        self.save_btn.setProperty("variant", "primary")
         self.save_btn.clicked.connect(self.save_results)
         layout.addWidget(self.save_btn)
 
