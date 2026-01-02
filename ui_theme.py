@@ -54,15 +54,48 @@ def build_stylesheet(theme: ThemeTokens) -> str:
         QMainWindow {{
             background: {theme.background};
         }}
+        QWidget {{
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }}
         QLabel, QCheckBox {{
             color: {theme.text};
-            font-family: 'Segoe UI', Arial, sans-serif;
+        }}
+        QLabel#panelTitle {{
+            color: {theme.text};
         }}
         QLabel#status {{
             color: {theme.text_muted};
         }}
+        QLabel#summaryChip {{
+            color: {theme.text};
+            background: {theme.surface};
+            border: 1px solid {theme.border};
+            border-radius: 12px;
+            padding: 4px 10px;
+        }}
+        QGroupBox {{
+            background: {theme.surface};
+            border: 1px solid {theme.border};
+            border-radius: 10px;
+            margin-top: 10px;
+        }}
+        QGroupBox::title {{
+            subcontrol-origin: margin;
+            left: 12px;
+            padding: 0 4px;
+            color: {theme.text};
+        }}
+        QToolButton {{
+            text-align: left;
+            background: {theme.surface};
+            border: 1px solid {theme.border};
+            border-radius: 8px;
+            padding: 6px 10px;
+        }}
+        QToolButton:hover {{
+            border-color: {theme.secondary_hover};
+        }}
         QPushButton, QComboBox, QSpinBox, QDoubleSpinBox {{
-            font-family: 'Segoe UI', Arial, sans-serif;
             font-size: 14px;
         }}
         QComboBox, QPushButton, QSpinBox, QDoubleSpinBox {{
@@ -127,6 +160,32 @@ def build_stylesheet(theme: ThemeTokens) -> str:
             border-radius: 8px;
             border: 1px solid {theme.border};
             padding: 6px;
+        }}
+        QTabWidget::pane {{
+            border: 1px solid {theme.border};
+            border-radius: 10px;
+            padding: 4px;
+            background: {theme.surface};
+        }}
+        QTabBar::tab {{
+            background: {theme.secondary};
+            color: {theme.text};
+            border: 1px solid {theme.border};
+            border-bottom: none;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+            padding: 6px 12px;
+            margin-right: 4px;
+        }}
+        QTabBar::tab:selected {{
+            background: {theme.surface};
+            color: {theme.text};
+        }}
+        QSplitter::handle {{
+            background: {theme.background};
+        }}
+        QSplitter::handle:horizontal {{
+            width: 8px;
         }}
         QTextEdit:hover {{
             border: 1px solid {theme.secondary_hover};
