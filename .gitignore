@@ -15,6 +15,7 @@ Thumbs.db
 venv/
 .env/
 .env
+specs/
 
 # Ignore log files
 *.log
