@@ -77,6 +77,9 @@ def build_stylesheet(theme: ThemeTokens) -> str:
         QPushButton:hover {{
             background: {theme.secondary_hover};
         }}
+        QPushButton:focus {{
+            border: 2px solid {theme.focus_ring};
+        }}
         QPushButton:pressed {{
             background: {theme.secondary_pressed};
         }}
@@ -87,6 +90,9 @@ def build_stylesheet(theme: ThemeTokens) -> str:
         }}
         QPushButton[variant="primary"]:hover {{
             background: {theme.primary_hover};
+        }}
+        QPushButton[variant="primary"]:focus {{
+            border: 2px solid {theme.focus_ring};
         }}
         QPushButton[variant="primary"]:pressed {{
             background: {theme.primary_pressed};
@@ -102,8 +108,16 @@ def build_stylesheet(theme: ThemeTokens) -> str:
             border: 1px solid {theme.border};
             padding: 4px 8px;
         }}
+        QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover {{
+            border: 1px solid {theme.secondary_hover};
+        }}
         QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{
-            border: 1px solid {theme.focus_ring};
+            border: 2px solid {theme.focus_ring};
+        }}
+        QComboBox:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {{
+            background: {theme.surface};
+            color: {theme.text_muted};
+            border: 1px solid {theme.border};
         }}
         QTextEdit {{
             background: {theme.surface};
@@ -114,8 +128,16 @@ def build_stylesheet(theme: ThemeTokens) -> str:
             border: 1px solid {theme.border};
             padding: 6px;
         }}
+        QTextEdit:hover {{
+            border: 1px solid {theme.secondary_hover};
+        }}
         QTextEdit:focus {{
-            border: 1px solid {theme.focus_ring};
+            border: 2px solid {theme.focus_ring};
+        }}
+        QTextEdit:disabled {{
+            background: {theme.surface};
+            color: {theme.text_muted};
+            border: 1px solid {theme.border};
         }}
         QCheckBox::indicator {{
             width: 20px;
