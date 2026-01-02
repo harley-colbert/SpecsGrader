@@ -4,6 +4,7 @@ from PySide6.QtWidgets import (
     QSpinBox, QDoubleSpinBox
 )
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
 import json
 import pandas as pd
 import logic  # Your business logic module
@@ -166,9 +167,80 @@ class DualSpecClassifierApp(QMainWindow):
         results_layout.addWidget(self.save_btn)
         layout.addWidget(results_group, stretch=1)
 
+        self.apply_typography_and_spacing(
+            section_headers=[
+                model_group,
+                training_group,
+                classify_group,
+                similarity_group,
+                results_group,
+            ],
+            labels=[
+                self.train_file_label,
+                self.classify_file_label,
+                self.top_k_label,
+                self.sim_threshold_label,
+            ],
+            status_labels=[
+                self.model_label,
+                self.train_status_label,
+                self.pred_status_label,
+            ],
+            buttons=[
+                self.refresh_model_dropdown_btn,
+                self.train_browse_btn,
+                self.train_btn,
+                self.save_model_set_btn,
+                self.classify_browse_btn,
+                self.classify_btn,
+                self.save_btn,
+            ],
+            inputs=[
+                self.model_dropdown,
+                self.top_k_spin,
+                self.sim_threshold_spin,
+            ],
+        )
         self.update_similarity_controls()
 
     # --- UI Logic Functions ---
+    def apply_typography_and_spacing(
+        self,
+        section_headers,
+        labels,
+        status_labels,
+        buttons,
+        inputs,
+    ):
+        header_font = QFont("Segoe UI", 16, QFont.DemiBold)
+        label_font = QFont("Segoe UI", 13)
+        status_font = QFont("Segoe UI", 12)
+
+        for header in section_headers:
+            header.setFont(header_font)
+
+        for label in labels:
+            label.setFont(label_font)
+
+        self.sim_checkbox.setFont(label_font)
+
+        for status_label in status_labels:
+            status_label.setFont(status_font)
+            status_label.setObjectName("status")
+
+        control_min_height = 38
+        button_min_width = 160
+        button_padding = "padding: 6px 14px;"
+        input_padding = "padding: 6px 10px;"
+
+        for button in buttons:
+            button.setMinimumHeight(control_min_height)
+            button.setMinimumWidth(button_min_width)
+            button.setStyleSheet(button_padding)
+
+        for input_widget in inputs:
+            input_widget.setMinimumHeight(control_min_height)
+            input_widget.setStyleSheet(input_padding)
     def refresh_model_dropdown(self):
         sets = ["None (Unload)"] + logic.list_model_sets()
         self.model_dropdown.clear()
