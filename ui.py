@@ -156,6 +156,7 @@ class DualSpecClassifierApp(QMainWindow):
 
         self.results_box = QTextEdit()
         self.results_box.setReadOnly(True)
+        self.results_box.setPlaceholderText("Results will appear here after classification.")
         results_layout.addWidget(self.results_box, stretch=1)
 
         self.save_btn = QPushButton("Save Results to CSV")
@@ -215,7 +216,7 @@ class DualSpecClassifierApp(QMainWindow):
         try:
             report, files_dict = logic.train_all_models(self.train_csv_path, return_file_dict=True)
             self.results_box.clear()
-            self.results_box.append(report)
+            self.results_box.append(self.format_report_output("Training Report", report))
             self.models = logic.load_all_models(files_dict=files_dict)
             self.train_status_label.setText("Training complete. All models and embeddings saved.")
 
@@ -333,7 +334,7 @@ class DualSpecClassifierApp(QMainWindow):
                     )
 
             self.last_pred_df = result_df
-            output = result_df.to_string(index=False)
+            output = self.format_results_table(result_df)
             self.results_box.clear()
             self.results_box.append(output)
             self.save_btn.setEnabled(True)
@@ -353,3 +354,21 @@ class DualSpecClassifierApp(QMainWindow):
                 QMessageBox.information(self, "Saved", f"Results saved to {fname}")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Could not save file:\n{str(e)}")
+
+    def format_report_output(self, title, body):
+        if not body:
+            return f"{title}\n{'=' * len(title)}\nNo details available."
+        return f"{title}\n{'=' * len(title)}\n\n{body}"
+
+    def format_results_table(self, result_df):
+        title = "Classification Results"
+        columns = ", ".join(result_df.columns)
+        lines = [
+            title,
+            "=" * len(title),
+            f"Rows: {len(result_df)}",
+            f"Columns: {columns}",
+            "",
+            result_df.to_string(index=False)
+        ]
+        return "\n".join(lines)
