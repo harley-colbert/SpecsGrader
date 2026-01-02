@@ -13,6 +13,7 @@ Thumbs.db
 
 # Ignore virtual environments
 venv/
+.venv/
 .env/
 .env
 specs/
@@ -28,7 +29,11 @@ specs/
 
 # Ignore your models and data directories (if you don't want to commit large files)
 models/
+!models/.gitkeep
 data/
+!tests/data/
+!tests/data/train_min.csv
+!tests/data/infer_min.csv
 
 # Ignore zip and tarballs
 *.zip

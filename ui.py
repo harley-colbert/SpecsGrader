@@ -1,8 +1,10 @@
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QGridLayout,
-    QLabel, QPushButton, QComboBox, QFileDialog, QTextEdit, QMessageBox, QCheckBox
+    QLabel, QPushButton, QComboBox, QFileDialog, QTextEdit, QMessageBox, QCheckBox,
+    QSpinBox, QDoubleSpinBox
 )
 from PySide6.QtCore import Qt
+import json
 import pandas as pd
 import logic  # Your business logic module
 
@@ -94,10 +96,29 @@ class DualSpecClassifierApp(QMainWindow):
         self.pred_status_label = QLabel("")
         grid.addWidget(self.pred_status_label, 5, 0, 1, 4)
 
-        # --- Checkbox ---
-        self.sim_checkbox = QCheckBox("Show Most Similar Training Spec for Each")
+        # --- Similarity Controls ---
+        self.sim_checkbox = QCheckBox("Use Vector DB Similarity")
         self.sim_checkbox.setChecked(True)
-        grid.addWidget(self.sim_checkbox, 6, 0, 1, 2)
+        self.sim_checkbox.stateChanged.connect(self.update_similarity_controls)
+        grid.addWidget(self.sim_checkbox, 6, 0, 1, 1)
+
+        self.top_k_label = QLabel("Top K")
+        grid.addWidget(self.top_k_label, 6, 1, 1, 1)
+
+        self.top_k_spin = QSpinBox()
+        self.top_k_spin.setRange(1, 20)
+        self.top_k_spin.setValue(5)
+        grid.addWidget(self.top_k_spin, 6, 2, 1, 1)
+
+        self.sim_threshold_label = QLabel("Similarity Threshold")
+        grid.addWidget(self.sim_threshold_label, 6, 3, 1, 1)
+
+        self.sim_threshold_spin = QDoubleSpinBox()
+        self.sim_threshold_spin.setDecimals(2)
+        self.sim_threshold_spin.setSingleStep(0.05)
+        self.sim_threshold_spin.setRange(0.0, 1.0)
+        self.sim_threshold_spin.setValue(0.55)
+        grid.addWidget(self.sim_threshold_spin, 6, 4, 1, 1)
 
         # --- Results area ---
         self.results_box = QTextEdit()
@@ -108,6 +129,8 @@ class DualSpecClassifierApp(QMainWindow):
         self.save_btn.setEnabled(False)
         self.save_btn.clicked.connect(self.save_results)
         layout.addWidget(self.save_btn)
+
+        self.update_similarity_controls()
 
     # --- UI Logic Functions ---
     def refresh_model_dropdown(self):
@@ -138,6 +161,7 @@ class DualSpecClassifierApp(QMainWindow):
                 self.models = None
                 self.model_label.setText("No classifiers loaded")
                 self.classify_btn.setEnabled(False)
+        self.update_similarity_controls()
 
     def browse_train_file(self):
         fname, _ = QFileDialog.getOpenFileName(self, "Select Training CSV", "", "CSV Files (*.csv)")
@@ -208,6 +232,18 @@ class DualSpecClassifierApp(QMainWindow):
             self.classify_file_label.setText("No file selected")
             self.classify_btn.setEnabled(False)
 
+    def update_similarity_controls(self):
+        has_vector_db = bool(self.models and self.models.get("vector_db"))
+        enable_controls = self.sim_checkbox.isChecked() and has_vector_db
+        self.top_k_spin.setEnabled(enable_controls)
+        self.top_k_label.setEnabled(enable_controls)
+        self.sim_threshold_spin.setEnabled(enable_controls)
+        self.sim_threshold_label.setEnabled(enable_controls)
+        if not has_vector_db:
+            self.sim_checkbox.setToolTip("Vector DB not loaded; similarity will fall back to embeddings.")
+        else:
+            self.sim_checkbox.setToolTip("")
+
     def classify_items(self):
         self.pred_status_label.setText("Classifying (Multipass)...")
         self.repaint()
@@ -220,7 +256,47 @@ class DualSpecClassifierApp(QMainWindow):
                 df = pd.read_excel(self.classify_file_path)
             else:
                 df = pd.read_csv(self.classify_file_path)
-            result_df = logic.multipass_classify(df, self.models, self.sim_checkbox.isChecked())
+            result_df = logic.multipass_classify(
+                df,
+                self.models,
+                self.sim_checkbox.isChecked(),
+                top_k=self.top_k_spin.value(),
+                similarity_threshold=self.sim_threshold_spin.value()
+            )
+            result_df = result_df.copy()
+            if "Needs Review" in result_df.columns:
+                result_df["Needs Review"] = result_df["Needs Review"].astype(bool)
+
+            evidence_json = result_df.get("Similarity Evidence")
+            if evidence_json is not None:
+                def build_top_evidence(payload):
+                    if not payload:
+                        return 0.0, ""
+                    try:
+                        data = json.loads(payload)
+                    except (TypeError, json.JSONDecodeError):
+                        return 0.0, ""
+                    if not data:
+                        return 0.0, ""
+                    top = data[0]
+                    similarity = float(top.get("similarity", 0.0)) if isinstance(top, dict) else 0.0
+                    text = top.get("text", "") if isinstance(top, dict) else ""
+                    return similarity, text
+
+                top_values = evidence_json.apply(build_top_evidence)
+                result_df["Top Similarity"] = top_values.apply(lambda val: val[0])
+                result_df["Top Match (Preview)"] = top_values.apply(
+                    lambda val: (val[1][:120] + "…") if val[1] and len(val[1]) > 120 else val[1]
+                )
+                result_df["Top-K Evidence (JSON)"] = evidence_json
+            else:
+                if "Similarity Score" in result_df.columns:
+                    result_df["Top Similarity"] = result_df["Similarity Score"]
+                if "Similarity Match" in result_df.columns:
+                    result_df["Top Match (Preview)"] = result_df["Similarity Match"].apply(
+                        lambda text: (text[:120] + "…") if isinstance(text, str) and len(text) > 120 else text
+                    )
+
             self.last_pred_df = result_df
             output = result_df.to_string(index=False)
             self.results_box.clear()
