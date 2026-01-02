@@ -3,6 +3,9 @@ import json
 
 MODEL_SET_DB = "models/model_sets.json"
 
+def ensure_models_dir():
+    os.makedirs(os.path.dirname(MODEL_SET_DB), exist_ok=True)
+
 def save_model_set(model_set_name, files_dict):
     """
     files_dict = {
@@ -11,6 +14,7 @@ def save_model_set(model_set_name, files_dict):
         ...
     }
     """
+    ensure_models_dir()
     if os.path.exists(MODEL_SET_DB):
         with open(MODEL_SET_DB, "r") as f:
             db = json.load(f)
@@ -23,6 +27,7 @@ def save_model_set(model_set_name, files_dict):
     print(f"Saved model set '{model_set_name}' to {MODEL_SET_DB}")
 
 def get_model_set(model_set_name):
+    ensure_models_dir()
     if not os.path.exists(MODEL_SET_DB):
         raise FileNotFoundError("No model set database found.")
     with open(MODEL_SET_DB, "r") as f:

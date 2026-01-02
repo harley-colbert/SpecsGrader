@@ -1,0 +1,7 @@
+Risk Description,Risk Level,Review Department
+must comply with nfpa 79 for all wiring,high,electrical
+operator shall wear PPE when handling chemicals,medium,safety
+provide full set of drawings and documentation,low,documentation
+emergency stop circuit shall be category 3 pld,high,controls
+dimensions shall match customer layout,low,mechanical
+perform factory acceptance test with customer witness,medium,quality

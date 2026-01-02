@@ -104,7 +104,10 @@ For each line of text (“Risk Description”):
 ### **Dependencies**
 
 * Python 3.8 or newer
-* `pandas`, `joblib`, `scikit-learn`, `PySide6` **OR** `tkinter` and `ttkbootstrap`, `numpy`
+* `pandas`, `joblib`, `scikit-learn`, `numpy`
+* `sentence-transformers` (semantic embeddings)
+* `chromadb` (optional persistent Vector DB)
+* `PySide6` **OR** `tkinter` and `ttkbootstrap`
 * Project-specific modules: `embeddings.py`, `similarity_engine.py`, `classic_ml.py`, `rules_engine.py`, etc.
 
 ### **Setup Steps**
@@ -112,7 +115,7 @@ For each line of text (“Risk Description”):
 1. **Clone or unzip the app.**
 2. *(Optional, recommended)*: Create and activate a new virtual environment.
 3. **Install dependencies**
-   `pip install pandas joblib scikit-learn numpy pyside6`
+   `pip install -r requirements.txt`
 4. **Run the app:**
 
    * For GUI: `python splash.py` or `python app.py`
@@ -151,6 +154,31 @@ For each line of text (“Risk Description”):
   * Similarity Score (if applicable)
 
 * **All rules and confidence thresholds** are easily modifiable in `rules_engine.py` and `logic.py`.
+
+---
+
+## Vector DB Storage and Migration
+
+* **Storage location:** vector DB collections are stored under
+  `models/vector_db/<model_set_name>/chroma` with collection name matching the model set.
+* **Training with a model set name** will automatically build and persist the vector DB.
+* **Migrate older model sets** that only have `training_data_embeddings.pkl`:
+
+  ```bash
+  python scripts/migrate_pkl_to_vector_db.py <model_set_name>
+  ```
+
+* **Rebuild a vector DB** (destructive, requires confirmation):
+
+  ```bash
+  python scripts/rebuild_vector_db.py <model_set_name> --confirm
+  ```
+
+* **Validate a model set entry**:
+
+  ```bash
+  python scripts/validate_model_set.py <model_set_name>
+  ```
 
 ---
 
@@ -350,6 +378,10 @@ This section provides **step-by-step, detailed instructions** for each user-faci
 
 * Seamless switching between pre-trained models.
 * No need to retrain for every classification session.
+* Saved model sets now include vector DB metadata:
+  * `vector_db_dir` (e.g., `models/vector_db/<safe_name>/chroma`)
+  * `vector_collection` (sanitized name)
+  * Optional: `vector_db_backend`, `vector_db_metric`
 
 ---
 

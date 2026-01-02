@@ -37,6 +37,23 @@ class LoaderThread(QThread):
             self.progress_update.emit(40, "Loading Training Embeddings...")
             training_embeddings = try_load("Training Embeddings", load_training_embeddings, "models/training_data_embeddings.pkl")
 
+            vector_db = None
+            try:
+                from logic import get_last_used_model_set, load_model_set
+                last_used = get_last_used_model_set()
+                if last_used:
+                    model_set = load_model_set(last_used)
+                    if model_set.get("vector_db_dir") and model_set.get("vector_collection"):
+                        from vector_db import VectorDB
+                        vector_db = try_load(
+                            "Vector DB",
+                            VectorDB.open,
+                            model_set["vector_db_dir"],
+                            model_set["vector_collection"],
+                        )
+            except Exception as e:
+                self.progress_update.emit(None, f"Warning: Could not load Vector DB: {e}")
+
             from classic_ml import load_classic_ml
             classic_ml_objs = None
             try:
@@ -59,6 +76,7 @@ class LoaderThread(QThread):
                 "clf_rd": clf_rd,
                 "embedder": embedder,
                 "training_embeddings": training_embeddings,
+                "vector_db": vector_db,
                 "classic_ml_objs": classic_ml_objs
             }
             self.finished_loading.emit(preloaded)

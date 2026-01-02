@@ -1,0 +1,9 @@
+_pythonToCppCopy: Cannot copy-convert 0x7f28ee92f4a0 (NoneType) to C++.
+_pythonToCppCopy: Cannot copy-convert 0x7f28ee92f4a0 (NoneType) to C++.
+_pythonToCppCopy: Cannot copy-convert 0x7f28ee92f4a0 (NoneType) to C++.
+_pythonToCppCopy: Cannot copy-convert 0x7f28ee92f4a0 (NoneType) to C++.
+_pythonToCppCopy: Cannot copy-convert 0x7f28ee92f4a0 (NoneType) to C++.
+_pythonToCppCopy: Cannot copy-convert 0x7f28ee92f4a0 (NoneType) to C++.
+_pythonToCppCopy: Cannot copy-convert 0x7f28ee92f4a0 (NoneType) to C++.
+_pythonToCppCopy: Cannot copy-convert 0x7f28ee92f4a0 (NoneType) to C++.
+This plugin does not support propagateSizeHints()
