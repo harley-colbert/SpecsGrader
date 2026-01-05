@@ -62,38 +62,11 @@ def build_stylesheet(theme: ThemeTokens) -> str:
         }}
         QLabel#panelTitle {{
             color: {theme.text};
+            font-size: 18px;
+            font-weight: 600;
         }}
         QLabel#status {{
             color: {theme.text_muted};
-        }}
-        QLabel#summaryChip {{
-            color: {theme.text};
-            background: {theme.surface};
-            border: 1px solid {theme.border};
-            border-radius: 12px;
-            padding: 4px 10px;
-        }}
-        QGroupBox {{
-            background: {theme.surface};
-            border: 1px solid {theme.border};
-            border-radius: 10px;
-            margin-top: 10px;
-        }}
-        QGroupBox::title {{
-            subcontrol-origin: margin;
-            left: 12px;
-            padding: 0 4px;
-            color: {theme.text};
-        }}
-        QToolButton {{
-            text-align: left;
-            background: {theme.surface};
-            border: 1px solid {theme.border};
-            border-radius: 8px;
-            padding: 6px 10px;
-        }}
-        QToolButton:hover {{
-            border-color: {theme.secondary_hover};
         }}
         QPushButton, QComboBox, QSpinBox, QDoubleSpinBox {{
             font-size: 14px;
@@ -209,4 +182,29 @@ def build_stylesheet(theme: ThemeTokens) -> str:
             background: {theme.accent};
             border: 1px solid {theme.accent};
         }}
+        QFrame#card {{
+            background: {theme.surface};
+            border: 1px solid {theme.border};
+            border-radius: 10px;
+        }}
+        QFrame#sidebar {{
+            background: {theme.surface};
+            border-right: 1px solid {theme.border};
+        }}
+        QLabel#chip {{
+            background: {theme.surface};
+            border: 1px solid {theme.border};
+            border-radius: 10px;
+            padding: 4px 8px;
+        }}
     """
+
+
+def apply_theme(app_or_widget) -> None:
+    """Apply the light theme to the provided QApplication or widget."""
+
+    stylesheet = build_stylesheet(LIGHT_THEME)
+    try:
+        app_or_widget.setStyleSheet(stylesheet)
+    except AttributeError:
+        pass
