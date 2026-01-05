@@ -1,7 +1,9 @@
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
     QLabel, QPushButton, QComboBox, QFileDialog, QTextEdit, QMessageBox, QCheckBox,
-    QSpinBox, QDoubleSpinBox, QSplitter, QTabWidget, QToolButton, QSizePolicy, QFrame, QTableWidget, QTableWidgetItem, QListWidget, QDialog, QDialogButtonBox, QCheckBox as QDialogCheckBox, QLineEdit
+    QSpinBox, QDoubleSpinBox, QSplitter, QTabWidget, QToolButton, QSizePolicy, QFrame,
+    QTableWidget, QTableWidgetItem, QListWidget, QDialog, QDialogButtonBox, QCheckBox as QDialogCheckBox,
+    QLineEdit, QAbstractItemView
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -317,8 +319,8 @@ class DualSpecClassifierApp(QMainWindow):
         self.results_table = QTableWidget()
         self.results_table.setColumnCount(6)
         self.results_table.setHorizontalHeaderLabels(["Type", "Confidence", "Snippet", "Source", "Status", "Action"])
-        self.results_table.setSelectionBehavior(self.results_table.SelectRows)
-        self.results_table.setEditTriggers(self.results_table.NoEditTriggers)
+        self.results_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.results_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.results_table.cellClicked.connect(self.on_result_select)
 
         self.details_box = QTextEdit()
@@ -371,8 +373,8 @@ class DualSpecClassifierApp(QMainWindow):
         self.review_table = QTableWidget()
         self.review_table.setColumnCount(5)
         self.review_table.setHorizontalHeaderLabels(["Snippet", "Predicted", "Confidence", "Source", "Status"])
-        self.review_table.setSelectionBehavior(self.review_table.SelectRows)
-        self.review_table.setEditTriggers(self.review_table.NoEditTriggers)
+        self.review_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.review_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.review_table.cellClicked.connect(self.on_review_select)
         review_layout.addWidget(self.review_table, stretch=1)
 
