@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
@@ -136,3 +137,19 @@ def perform_export(
 
 def get_current_model_paths(models: Dict) -> Dict:
     return logic.get_current_model_file_paths(models)
+
+
+def summarize_training_file(path: str) -> Tuple[bool, Optional[int], Optional[int], Optional[str], str]:
+    try:
+        df = pd.read_csv(path)
+        rows = len(df)
+        label_cols = [c for c in df.columns if c.lower() in {"label", "risk level", "final risk level"}]
+        if label_cols:
+            labeled = int(df[label_cols[0]].notna().sum())
+        else:
+            labeled = rows
+        last_modified_ts = Path(path).stat().st_mtime
+        last_modified = datetime.fromtimestamp(last_modified_ts).strftime("%Y-%m-%d %H:%M")
+        return True, rows, labeled, last_modified, ""
+    except Exception as exc:  # pragma: no cover - UI helper
+        return False, None, None, None, str(exc)

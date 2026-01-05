@@ -62,11 +62,23 @@ def build_stylesheet(theme: ThemeTokens) -> str:
         }}
         QLabel#panelTitle {{
             color: {theme.text};
+            font-size: 16px;
+            font-weight: 600;
+        }}
+        QLabel#topBarTitle {{
+            color: {theme.text};
             font-size: 18px;
             font-weight: 600;
         }}
+        QLabel#sectionTitle {{
+            color: {theme.text_muted};
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }}
         QLabel#status {{
             color: {theme.text_muted};
+            font-size: 12px;
         }}
         QPushButton, QComboBox, QSpinBox, QDoubleSpinBox {{
             font-size: 14px;
@@ -179,18 +191,37 @@ def build_stylesheet(theme: ThemeTokens) -> str:
             background: {theme.surface};
         }}
         QCheckBox::indicator:checked {{
-            background: {theme.accent};
-            border: 1px solid {theme.accent};
+            background: {theme.primary};
+            border: 1px solid {theme.primary};
         }}
         QFrame#card {{
             background: {theme.surface};
             border: 1px solid {theme.border};
             border-radius: 10px;
+            padding: 10px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.04);
         }}
         QFrame#sidebar {{
             background: {theme.surface};
             border-right: 1px solid {theme.border};
         }}
+        QFrame#topBar {{
+            background: {theme.surface};
+            border-bottom: 1px solid {theme.border};
+            box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+        }}
+        QListWidget#workflowList::item {
+            padding: 8px 10px;
+            margin: 2px 0;
+            border-radius: 12px;
+        }
+        QListWidget#workflowList::item:selected {
+            background: {theme.primary};
+            color: {theme.primary_text};
+        }
+        QListWidget#workflowList::item:hover {
+            background: {theme.secondary_hover};
+        }
         QLabel#chip {{
             background: {theme.surface};
             border: 1px solid {theme.border};

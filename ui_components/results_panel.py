@@ -4,8 +4,16 @@ from typing import Optional
 
 import pandas as pd
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QTabWidget,
-                               QTextEdit, QVBoxLayout, QWidget, QTableView)
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+    QTableView,
+)
 
 from ui_models import PandasTableModel, summarize_results
 
@@ -41,6 +49,14 @@ class ResultsPanel(QFrame):
         table_layout.addWidget(self.table_view)
         self.tabs.addTab(table_tab, "Table")
 
+        # Review Queue tab placeholder
+        review_tab = QWidget()
+        review_layout = QVBoxLayout(review_tab)
+        review_placeholder = QLabel("Review queue is empty.")
+        review_placeholder.setAlignment(Qt.AlignCenter)
+        review_layout.addWidget(review_placeholder)
+        self.tabs.addTab(review_tab, "Review Queue")
+
         # Log tab
         self.log_box = QTextEdit()
         self.log_box.setReadOnly(True)
@@ -51,13 +67,21 @@ class ResultsPanel(QFrame):
         self.stats_box = QTextEdit()
         self.stats_box.setReadOnly(True)
         self.tabs.addTab(self.stats_box, "Stats")
+        self.set_results(None)
 
     def set_results(self, df: Optional[pd.DataFrame]) -> None:
-        self.model.set_dataframe(df if df is not None else pd.DataFrame())
-        counts = summarize_results(df)
-        self.summary_label.setText(
-            f"Specs: {counts['total']} • Risks: {counts['risks']} • Uncertain: {counts['uncertain']}"
-        )
+        has_data = df is not None and not df.empty
+        self.model.set_dataframe(df if has_data else pd.DataFrame())
+        if has_data:
+            counts = summarize_results(df)
+            self.summary_label.setText(
+                f"Specs: {counts['total']} • Risks: {counts['risks']} • Uncertain: {counts['uncertain']}"
+            )
+        else:
+            self.summary_label.setText("No results yet.")
+        self.table_view.setVisible(has_data)
+        self.log_box.setVisible(has_data)
+        self.stats_box.setVisible(has_data)
 
     def append_log(self, message: str) -> None:
         if message:
