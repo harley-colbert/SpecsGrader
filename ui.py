@@ -83,7 +83,6 @@ class DualSpecClassifierApp(QMainWindow):
         model_layout.addRow("Status", self.model_label)
 
         self.model_dropdown = QComboBox()
-        self.refresh_model_dropdown()
         self.model_dropdown.currentIndexChanged.connect(self.on_model_select)
 
         self.refresh_model_dropdown_btn = QPushButton("Refresh")
@@ -473,6 +472,7 @@ class DualSpecClassifierApp(QMainWindow):
         self.load_persisted_labels()
         self.refresh_label_counts()
         self.load_model_history()
+        self.refresh_model_dropdown()
         self.refresh_ux_state()
 
     # --- UI Logic Functions ---
