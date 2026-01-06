@@ -1,0 +1,30 @@
+{
+  "name": "agentsV4.0",
+  "project": "SpecsGrader",
+  "date": "2026-01-06",
+  "agents": [
+    "Agent_RepoAuditor.md",
+    "Agent_BackendEngineer.md",
+    "Agent_FrontendEngineer.md",
+    "Agent_DataIngest.md",
+    "Agent_MLTrainer.md",
+    "Agent_VectorStore.md",
+    "Agent_LLMIntegrator.md",
+    "Agent_Aggregator.md",
+    "Agent_ResultsUX.md",
+    "Agent_QA.md",
+    "Agent_ReleaseManager.md"
+  ],
+  "shared": [
+    "shared/CONTRACTS.md",
+    "shared/ENUMS.md",
+    "shared/BUNDLE_SPEC.md",
+    "shared/METHOD_PREDICTION_SCHEMA.md",
+    "shared/TESTING_STRATEGY.md",
+    "shared/STYLE_GUIDE.md"
+  ],
+  "orchestration": [
+    "ORCHESTRATOR_PROMPT.md",
+    "RUNBOOK.md"
+  ]
+}

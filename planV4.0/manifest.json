@@ -1,0 +1,16 @@
+{
+  "name": "planV4.0",
+  "project": "SpecsGrader",
+  "date": "2026-01-06",
+  "phases": [
+    "Phase00_Preflight_and_Repo_Skeleton.md",
+    "Phase01_App_Shell_and_Pane_Contracts.md",
+    "Phase02_Data_Ingest_CSV_XLSX_and_Canonical_Rows.md",
+    "Phase03_Rules_Engine_and_Config.md",
+    "Phase04_Training_TFIDF_Baseline_Imbalance_and_Bundles.md",
+    "Phase05_Vector_Embeddings_Local_Default_Index_and_Classifier.md",
+    "Phase06_OpenRouter_LLM_and_NeverSend_Mode.md",
+    "Phase07_Aggregation_Jobs_Progress_Cancel_Results_Overrides_Corrections.md",
+    "Phase08_Export_Polish_Docs_and_Release_Checks.md"
+  ]
+}
