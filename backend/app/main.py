@@ -1,11 +1,23 @@
+import json
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict
 
-from fastapi import FastAPI
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .settings import get_settings
+from .state import AppState, get_state
+from .services.ingest_service import load_classify_dataset, load_training_dataset
+from .services.rule_service import RuleService
+from .services.training_service import TrainingParams, TrainingService
+from .services.vector_service import VectorService
+from .services.llm_service import LLMService
+from .services.aggregate_service import aggregate_outputs
+from .services.job_manager import JobManager
+
+ALLOWED_PANES = {"train", "classify", "results"}
 
 
 def create_app() -> FastAPI:
@@ -13,6 +25,7 @@ def create_app() -> FastAPI:
 
     settings = get_settings()
     app = FastAPI(title="SpecsGrader", version="0.0.1")
+    app_state: AppState = get_state()
 
     frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
     index_path = frontend_dir / "index.html"
@@ -22,6 +35,263 @@ def create_app() -> FastAPI:
     @app.get("/api/health", response_class=JSONResponse)
     async def health() -> Dict[str, Any]:
         return {"ok": True}
+
+    rule_service = RuleService(app_state.rules_config)
+    training_service = TrainingService(
+        workspace=Path(__file__).resolve().parents[2] / "workspace",
+        app_state=app_state,
+    )
+    vector_service = VectorService(
+        workspace=Path(__file__).resolve().parents[2] / "workspace",
+        app_state=app_state,
+    )
+    llm_service = LLMService()
+    classify_job = JobManager()
+
+    @app.get("/api/state", response_class=JSONResponse)
+    async def read_state() -> Dict[str, Any]:
+        return asdict(app_state)
+
+    @app.post("/api/ui/set_active_pane", response_class=JSONResponse)
+    async def set_active_pane(payload: Dict[str, str] = Body(...)) -> Dict[str, Any]:
+        requested_pane = payload.get("pane")
+        if requested_pane not in ALLOWED_PANES:
+            raise HTTPException(status_code=400, detail="Invalid pane requested")
+        app_state.active_pane = requested_pane
+        return asdict(app_state)
+
+    @app.post("/api/data/load", response_class=JSONResponse)
+    async def load_data(payload: Dict[str, str] = Body(...)) -> Dict[str, Any]:
+        mode = payload.get("mode")
+        path = payload.get("path")
+        if mode not in {"train", "classify"} or not path:
+            raise HTTPException(status_code=400, detail="Invalid load request")
+
+        try:
+            if mode == "train":
+                dataset = load_training_dataset(path)
+                app_state.training_dataset = dataset
+                app_state.data_loaded["train"] = True
+            else:
+                dataset = load_classify_dataset(path)
+                app_state.classify_dataset = dataset
+                app_state.data_loaded["classify"] = True
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        return dataset.get("summary", {})
+
+    @app.get("/api/data/preview", response_class=JSONResponse)
+    async def preview_data(mode: str, limit: int = 20, offset: int = 0) -> Dict[str, Any]:
+        if mode == "train":
+            dataset = app_state.training_dataset
+        elif mode == "classify":
+            dataset = app_state.classify_dataset
+        else:
+            raise HTTPException(status_code=400, detail="Invalid mode")
+
+        if dataset is None:
+            raise HTTPException(status_code=404, detail="Dataset not loaded")
+
+        rows = dataset.get("rows", [])
+        sliced = rows[offset : offset + limit]
+        return {"rows": sliced, "total": len(rows)}
+
+    @app.get("/api/rules/get", response_class=JSONResponse)
+    async def get_rules() -> Dict[str, Any]:
+        return app_state.rules_config
+
+    @app.post("/api/rules/set", response_class=JSONResponse)
+    async def set_rules(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        rules = payload.get("rules")
+        if not rules or not isinstance(rules, dict):
+            raise HTTPException(status_code=400, detail="Invalid rules payload")
+        if "version" not in rules:
+            raise HTTPException(status_code=400, detail="Rules must include version")
+        app_state.rules_config = rules
+        nonlocal rule_service
+        rule_service = RuleService(rules)
+        return app_state.rules_config
+
+    @app.post("/api/rules/test", response_class=JSONResponse)
+    async def test_rules(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        text = payload.get("text", "")
+        rules = payload.get("rules")
+        svc = rule_service if not rules else RuleService(rules)
+        prediction = svc.predict(text)
+        return {
+            "dept_pred": prediction.dept_pred,
+            "dept_conf": prediction.dept_conf,
+            "matched": prediction.matched,
+        }
+
+    @app.post("/api/train/start", response_class=JSONResponse)
+    async def start_training(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        params = TrainingParams(
+            oversample_enabled=bool(payload.get("oversample_enabled", False)),
+            oversample_cap_ratio=float(payload.get("oversample_cap_ratio", 0.3)),
+            min_recall_per_class=float(payload.get("min_recall_per_class", 0.5)),
+            calibration_method=str(payload.get("calibration_method", "sigmoid")),
+        )
+        training_service.start_training(params)
+        return training_service.status()
+
+    @app.get("/api/train/status", response_class=JSONResponse)
+    async def training_status() -> Dict[str, Any]:
+        return training_service.status()
+
+    @app.post("/api/train/cancel", response_class=JSONResponse)
+    async def training_cancel() -> Dict[str, Any]:
+        training_service.cancel()
+        return training_service.status()
+
+    @app.get("/api/train/metrics", response_class=JSONResponse)
+    async def training_metrics() -> Dict[str, Any]:
+        metrics = training_service.metrics()
+        if metrics is None:
+            raise HTTPException(status_code=404, detail="No training metrics available")
+        return metrics
+
+    @app.get("/api/settings", response_class=JSONResponse)
+    async def get_settings_state() -> Dict[str, Any]:
+        return {"never_send_externally": app_state.never_send_externally}
+
+    @app.post("/api/settings", response_class=JSONResponse)
+    async def set_settings(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        app_state.never_send_externally = bool(payload.get("never_send_externally", False))
+        return {"never_send_externally": app_state.never_send_externally}
+
+    @app.post("/api/vector/build", response_class=JSONResponse)
+    async def vector_build(payload: Dict[str, Any] = Body(None)) -> Dict[str, Any]:
+        k = int(payload.get("k", 5)) if payload else 5
+        if not app_state.training_dataset:
+            raise HTTPException(status_code=400, detail="No training dataset loaded")
+        rows = app_state.training_dataset.get("rows", [])
+        if not rows:
+            raise HTTPException(status_code=400, detail="Training dataset empty")
+        vector_service.build(rows)
+        return {"built": True, "k": k, "path": app_state.vector_store.get("path")}
+
+    @app.post("/api/vector/test", response_class=JSONResponse)
+    async def vector_test(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        text = payload.get("text", "")
+        k = int(payload.get("k", 5))
+        result = vector_service.predict(text, k=k)
+        return {
+            "dept_pred": result.dept_pred,
+            "dept_conf": result.dept_conf,
+            "level_pred": result.level_pred,
+            "level_conf": result.level_conf,
+            "neighbors": result.neighbors,
+        }
+
+    @app.post("/api/llm/test", response_class=JSONResponse)
+    async def llm_test(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        text = payload.get("text", "")
+        model_name = payload.get("model", "openrouter/auto")
+        try:
+            pred = llm_service.predict(text, model_name, app_state.never_send_externally)
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {
+            "risk_level": pred.risk_level,
+            "department": pred.department,
+            "confidence": pred.confidence,
+            "reason": pred.reason,
+        }
+
+    @app.post("/api/classify/start", response_class=JSONResponse)
+    async def classify_start(payload: Dict[str, Any] = Body(None)) -> Dict[str, Any]:
+        thresholds = payload.get("thresholds", {}) if payload else {}
+        enabled = (
+            payload.get("enabled_methods", {"rules": True, "vector": True, "llm": True})
+            if payload
+            else {"rules": True, "vector": True, "llm": True}
+        )
+
+        if app_state.classify_dataset is None:
+            raise HTTPException(status_code=400, detail="No classify dataset loaded")
+        rows = app_state.classify_dataset.get("rows", [])
+        if not rows:
+            raise HTTPException(status_code=400, detail="Classify dataset empty")
+
+        def worker(row: Dict[str, Any]) -> Dict[str, Any]:
+            text = row.get("risk_text", "")
+            method_outputs: Dict[str, Dict[str, Any]] = {}
+            if enabled.get("rules"):
+                rules_pred = rule_service.predict(text)
+                method_outputs["rules"] = {
+                    "dept_pred": rules_pred.dept_pred,
+                    "dept_conf": rules_pred.dept_conf,
+                    "level_pred": None,
+                    "level_conf": 0.0,
+                }
+            if enabled.get("vector") and app_state.vector_store.get("built"):
+                try:
+                    vector_pred = vector_service.predict(text, k=int(payload.get("k", 5)) if payload else 5)
+                    method_outputs["vector"] = {
+                        "dept_pred": vector_pred.dept_pred,
+                        "dept_conf": vector_pred.dept_conf,
+                        "level_pred": vector_pred.level_pred,
+                        "level_conf": vector_pred.level_conf,
+                    }
+                except Exception:
+                    method_outputs["vector"] = None
+            if enabled.get("llm") and not app_state.never_send_externally:
+                try:
+                    llm_pred = llm_service.predict(
+                        text,
+                        payload.get("llm_model", "openrouter/auto") if payload else "openrouter/auto",
+                        app_state.never_send_externally,
+                    )
+                    method_outputs["llm"] = {
+                        "dept_pred": llm_pred.department,
+                        "dept_conf": float(llm_pred.confidence or 0.5),
+                        "level_pred": llm_pred.risk_level,
+                        "level_conf": float(llm_pred.confidence or 0.5),
+                    }
+                except Exception:
+                    method_outputs["llm"] = None
+
+            aggregated = aggregate_outputs(method_outputs)
+            level_threshold = float(thresholds.get("level", 0.0))
+            dept_threshold = float(thresholds.get("dept", 0.0))
+            below_threshold = aggregated["conf_level"] < level_threshold or aggregated["conf_dept"] < dept_threshold
+
+            return {
+                "risk_text": text,
+                "pred_level": aggregated["pred_level"],
+                "pred_dept": aggregated["pred_dept"],
+                "conf_level": aggregated["conf_level"],
+                "conf_dept": aggregated["conf_dept"],
+                "methods_used": json.dumps(method_outputs),
+                "below_threshold": below_threshold,
+                "user_override_level": None,
+                "user_override_dept": None,
+            }
+
+        classify_job.start(rows, worker)
+        app_state.results_rows = classify_job.status.get("results", [])
+        return classify_job.current_status()
+
+    @app.get("/api/classify/status", response_class=JSONResponse)
+    async def classify_status() -> Dict[str, Any]:
+        app_state.results_rows = classify_job.status.get("results", [])
+        return classify_job.current_status()
+
+    @app.post("/api/classify/cancel", response_class=JSONResponse)
+    async def classify_cancel() -> Dict[str, Any]:
+        classify_job.cancel()
+        return classify_job.current_status()
+
+    @app.get("/api/results/rows", response_class=JSONResponse)
+    async def results_rows(limit: int = 20, offset: int = 0) -> Dict[str, Any]:
+        rows = getattr(app_state, "results_rows", []) or []
+        return {"rows": rows[offset : offset + limit], "total": len(rows)}
 
     @app.get("/", response_class=HTMLResponse)
     async def serve_index() -> Any:

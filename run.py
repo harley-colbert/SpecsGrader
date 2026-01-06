@@ -53,7 +53,7 @@ def main() -> None:
     url = f"http://127.0.0.1:{settings.port}/"
 
     webview.create_window("SpecsGrader", url, width=1200, height=800)
-    webview.start()
+    webview.start(debug=True)
     controller.stop()
 
 

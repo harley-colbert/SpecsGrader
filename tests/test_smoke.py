@@ -6,8 +6,6 @@ from backend.app.main import create_app
 def test_health_endpoint_returns_ok():
     app = create_app()
     client = TestClient(app)
-
-    response = client.get("/api/health")
-
-    assert response.status_code == 200
-    assert response.json() == {"ok": True}
+    resp = client.get("/api/health")
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True

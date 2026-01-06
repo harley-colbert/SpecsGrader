@@ -1,0 +1,26 @@
+{
+  "version": "1.0",
+  "system": "You are a deterministic classifier that emits JSON only.",
+  "user_template": "Classify the following risk text into risk_level and department. Return JSON only. Text: {{text}}",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "risk_level": {
+        "type": "string"
+      },
+      "department": {
+        "type": "string"
+      },
+      "confidence": {
+        "type": "number"
+      },
+      "reason": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "risk_level",
+      "department"
+    ]
+  }
+}
