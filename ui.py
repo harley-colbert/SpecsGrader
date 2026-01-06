@@ -1,1 +1,0 @@
-from ui_main_window import SpecsGraderMainWindow as DualSpecClassifierApp
