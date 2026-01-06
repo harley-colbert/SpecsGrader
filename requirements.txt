@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pywebview
+pydantic
+pandas
+openpyxl
+numpy
+scikit-learn
+joblib
+requests
+pytest
