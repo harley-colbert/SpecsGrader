@@ -10,3 +10,4 @@ joblib
 requests
 pytest
 httpx
+python-multipart

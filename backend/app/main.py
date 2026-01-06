@@ -2,8 +2,9 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict
+from uuid import uuid4
 
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -28,6 +29,8 @@ def create_app() -> FastAPI:
     app_state: AppState = get_state()
 
     frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
+    workspace_dir = Path(__file__).resolve().parents[2] / "workspace"
+    workspace_dir.mkdir(parents=True, exist_ok=True)
     index_path = frontend_dir / "index.html"
     styles_path = frontend_dir / "styles.css"
     src_dir = frontend_dir / "src"
@@ -38,11 +41,11 @@ def create_app() -> FastAPI:
 
     rule_service = RuleService(app_state.rules_config)
     training_service = TrainingService(
-        workspace=Path(__file__).resolve().parents[2] / "workspace",
+        workspace=workspace_dir,
         app_state=app_state,
     )
     vector_service = VectorService(
-        workspace=Path(__file__).resolve().parents[2] / "workspace",
+        workspace=workspace_dir,
         app_state=app_state,
     )
     llm_service = LLMService()
@@ -61,11 +64,29 @@ def create_app() -> FastAPI:
         return asdict(app_state)
 
     @app.post("/api/data/load", response_class=JSONResponse)
-    async def load_data(payload: Dict[str, str] = Body(...)) -> Dict[str, Any]:
-        mode = payload.get("mode")
-        path = payload.get("path")
-        if mode not in {"train", "classify"} or not path:
+    async def load_data(
+        payload: Dict[str, str] | None = Body(None),
+        mode_form: str | None = Form(None),
+        path_form: str | None = Form(None),
+        file: UploadFile | None = File(None),
+    ) -> Dict[str, Any]:
+        mode = mode_form or (payload.get("mode") if payload else None)
+        path = path_form or (payload.get("path") if payload else None)
+
+        if mode not in {"train", "classify"}:
             raise HTTPException(status_code=400, detail="Invalid load request")
+
+        if file is not None:
+            uploads_dir = workspace_dir / "uploads"
+            uploads_dir.mkdir(parents=True, exist_ok=True)
+            suffix = Path(file.filename or "").suffix or ""
+            target_path = uploads_dir / f"{mode}_{uuid4().hex}{suffix}"
+            content = await file.read()
+            target_path.write_bytes(content)
+            path = str(target_path)
+
+        if not path:
+            raise HTTPException(status_code=400, detail="No file provided for load request")
 
         try:
             if mode == "train":
