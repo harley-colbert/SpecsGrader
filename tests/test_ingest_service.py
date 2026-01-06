@@ -12,7 +12,14 @@ FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 
 
 def test_training_xlsx_selects_quote_sheet_and_row5():
-    dataset = load_training_dataset(str(FIXTURES / "training_sample.xlsx"))
+    training_xlsx = FIXTURES / "training_sample.xlsx"
+    rows = [["", "", "", "", "", "", ""] for _ in range(4)]
+    rows.append(["", "", "", "", "Risk text XLSX", "medium", "electrical"])
+    df_train = pd.DataFrame(rows)
+    with pd.ExcelWriter(training_xlsx, engine="openpyxl") as writer:
+        df_train.to_excel(writer, sheet_name="Quote #1", index=False, header=False)
+
+    dataset = load_training_dataset(str(training_xlsx))
 
     assert dataset["summary"]["total_rows"] == 1
     row = dataset["rows"][0]
@@ -39,7 +46,14 @@ def test_training_csv_reads_columns_and_validates_labels(tmp_path):
 
 def test_classify_loader_handles_csv_and_xlsx():
     csv_dataset = load_classify_dataset(str(FIXTURES / "classify_sample.csv"))
-    xlsx_dataset = load_classify_dataset(str(FIXTURES / "classify_sample.xlsx"))
+    classify_xlsx = FIXTURES / "classify_sample.xlsx"
+    rows = [["", "", "", "", "", "", ""] for _ in range(4)]
+    rows.append(["", "", "", "", "Classify XLSX Text", "", ""])
+    df_classify = pd.DataFrame(rows)
+    with pd.ExcelWriter(classify_xlsx, engine="openpyxl") as writer:
+        df_classify.to_excel(writer, sheet_name="Quote #A", index=False, header=False)
+
+    xlsx_dataset = load_classify_dataset(str(classify_xlsx))
 
     assert csv_dataset["rows"][0]["risk_text"] == "Classify text A"
     assert xlsx_dataset["rows"][0]["risk_text"] == "Classify XLSX Text"

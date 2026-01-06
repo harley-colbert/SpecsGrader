@@ -15,6 +15,7 @@ let rootEl = null;
 let summary = null;
 let preview = [];
 let loading = false;
+let trainingFile = null;
 let rulesConfig = null;
 let testResult = null;
 let trainingStatus = null;
@@ -34,8 +35,9 @@ function render(state) {
     <p>Load a training file, configure rules, train models, and build a vector store.</p>
     <div class="card">
       <label class="field">
-        <span>Training file path</span>
-        <input type="text" id="train-path" placeholder="/path/to/training.xlsx" />
+        <span>Training file (uses native OS picker)</span>
+        <input type="file" id="train-file" accept=".csv,.xlsx,.xls" />
+        ${trainingFile ? `<small>Selected: ${trainingFile.name}</small>` : ""}
       </label>
       <button id="train-load" ${loading ? "disabled" : ""}>${loading ? "Loading..." : "Load"}</button>
     </div>
@@ -111,21 +113,30 @@ function render(state) {
   `;
 
   const loadBtn = rootEl.querySelector("#train-load");
-  const pathInput = rootEl.querySelector("#train-path");
+  const fileInput = rootEl.querySelector("#train-file");
+  if (fileInput) {
+    fileInput.addEventListener("change", () => {
+      trainingFile = fileInput.files?.[0] || null;
+      render(state);
+    });
+  }
   if (loadBtn) {
     loadBtn.addEventListener("click", async () => {
-      const path = pathInput?.value.trim();
-      if (!path) return;
+      if (!trainingFile) {
+        alert("Please select a training file.");
+        return;
+      }
       loading = true;
       render(state);
       try {
-        summary = await loadDataset("train", path);
+        summary = await loadDataset("train", trainingFile);
         const previewResp = await fetchPreview("train", 10, 0);
         preview = previewResp.rows || [];
       } catch (error) {
         alert(error.message);
       } finally {
         loading = false;
+        trainingFile = null;
         render(state);
       }
     });
@@ -295,6 +306,7 @@ export default {
     summary = null;
     preview = [];
     loading = false;
+    trainingFile = null;
     testResult = null;
     trainingStatus = null;
     trainingMetrics = null;

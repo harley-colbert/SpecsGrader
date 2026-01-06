@@ -1,10 +1,29 @@
-import { fetchState, testVector, fetchRules, fetchSettings, saveSettings, testLlm } from "../api/client.js";
+import {
+  fetchState,
+  testVector,
+  fetchSettings,
+  saveSettings,
+  testLlm,
+  loadDataset,
+  fetchPreview,
+  startClassify,
+  fetchClassifyStatus,
+  cancelClassify,
+} from "../api/client.js";
 
 let rootEl = null;
 let stateCache = null;
 let vectorResult = null;
 let neverSend = false;
 let llmResult = null;
+let classifyFile = null;
+let classifySummary = null;
+let classifyPreview = [];
+let classifyStatus = null;
+let statusInterval = null;
+let thresholds = { level: 0.0, dept: 0.0, k: 5 };
+let enabledMethods = { rules: true, vector: true, llm: true };
+let llmModel = "openrouter/auto";
 
 function renderVectorResult(result) {
   const neighbors = (result.neighbors || [])
@@ -45,6 +64,38 @@ function render() {
         ${neverSend ? `<p class="warning">LLM is disabled by Never Send mode.</p>` : ""}
       </div>
       <div class="card">
+        <h3>Classify dataset</h3>
+        <label class="field">
+          <span>Select file (native OS picker)</span>
+          <input type="file" id="classify-file" accept=".csv,.xlsx,.xls" />
+          ${classifyFile ? `<small>Selected: ${classifyFile.name}</small>` : ""}
+        </label>
+        <div class="rule-actions">
+          <button id="classify-load">Load file</button>
+          ${classifySummary ? `<span class="chip">Rows: ${classifySummary.total_rows} | Missing text: ${classifySummary.missing_risk_text}</span>` : ""}
+        </div>
+        ${classifyPreview.length ? renderPreview(classifyPreview) : "<p>No preview loaded.</p>"}
+      </div>
+      <div class="card">
+        <h3>Run classify job</h3>
+        <div class="param-grid">
+          <label class="field"><span>Level threshold</span><input type="number" step="0.05" id="thresh-level" value="${thresholds.level}" /></label>
+          <label class="field"><span>Department threshold</span><input type="number" step="0.05" id="thresh-dept" value="${thresholds.dept}" /></label>
+          <label class="field"><span>Neighbors (k)</span><input type="number" min="1" max="20" id="thresh-k" value="${thresholds.k}" /></label>
+          <label class="field"><span>LLM model</span><input type="text" id="llm-model" value="${llmModel}" ${neverSend ? "disabled" : ""} /></label>
+        </div>
+        <div class="rule-actions">
+          <label class="toggle"><input type="checkbox" id="method-rules" ${enabledMethods.rules ? "checked" : ""} />Rules</label>
+          <label class="toggle"><input type="checkbox" id="method-vector" ${enabledMethods.vector ? "checked" : ""} />Vector</label>
+          <label class="toggle"><input type="checkbox" id="method-llm" ${enabledMethods.llm && !neverSend ? "checked" : ""} ${neverSend ? "disabled" : ""} />LLM</label>
+        </div>
+        <div class="rule-actions">
+          <button id="classify-start">Start classify</button>
+          <button id="classify-cancel">Cancel</button>
+          <span class="chip">Status: ${classifyStatus?.status || "idle"} (${classifyStatus?.processed || 0}/${classifyStatus?.total || 0})</span>
+        </div>
+      </div>
+      <div class="card">
         <h3>Vector test</h3>
         <input type="text" id="vector-text" placeholder="Enter text to test vector" />
         <button id="vector-run">Test vector</button>
@@ -65,6 +116,86 @@ function render() {
       neverSend = !!neverSendBox.checked;
       await saveSettings(neverSend);
       llmResult = null;
+      if (neverSend) {
+        enabledMethods.llm = false;
+      }
+      render();
+    } catch (error) {
+      alert(error.message);
+    }
+  });
+
+  const classifyInput = rootEl.querySelector("#classify-file");
+  classifyInput?.addEventListener("change", () => {
+    classifyFile = classifyInput.files?.[0] || null;
+    render();
+  });
+
+  const classifyLoadBtn = rootEl.querySelector("#classify-load");
+  classifyLoadBtn?.addEventListener("click", async () => {
+    if (!classifyFile) {
+      alert("Please select a classify file.");
+      return;
+    }
+    try {
+      classifySummary = await loadDataset("classify", classifyFile);
+      const previewResp = await fetchPreview("classify", 10, 0);
+      classifyPreview = previewResp.rows || [];
+      classifyFile = null;
+      render();
+    } catch (error) {
+      alert(error.message);
+    }
+  });
+
+  const methodRules = rootEl.querySelector("#method-rules");
+  const methodVector = rootEl.querySelector("#method-vector");
+  const methodLlm = rootEl.querySelector("#method-llm");
+  [methodRules, methodVector, methodLlm].forEach((checkbox) => {
+    checkbox?.addEventListener("change", () => {
+      enabledMethods = {
+        ...enabledMethods,
+        rules: !!methodRules?.checked,
+        vector: !!methodVector?.checked,
+        llm: !!methodLlm?.checked && !neverSend,
+      };
+      render();
+    });
+  });
+
+  const threshLevel = rootEl.querySelector("#thresh-level");
+  const threshDept = rootEl.querySelector("#thresh-dept");
+  const threshK = rootEl.querySelector("#thresh-k");
+  const llmModelInput = rootEl.querySelector("#llm-model");
+
+  const classifyStartBtn = rootEl.querySelector("#classify-start");
+  classifyStartBtn?.addEventListener("click", async () => {
+    thresholds = {
+      level: parseFloat(threshLevel?.value ?? thresholds.level) || 0,
+      dept: parseFloat(threshDept?.value ?? thresholds.dept) || 0,
+      k: parseInt(threshK?.value ?? thresholds.k, 10) || 5,
+    };
+    llmModel = llmModelInput?.value?.trim() || llmModel;
+    try {
+      classifyStatus = await startClassify({
+        thresholds,
+        enabled_methods: enabledMethods,
+        k: thresholds.k,
+        llm_model: llmModel,
+      });
+      startStatusPolling();
+      render();
+    } catch (error) {
+      alert(error.message);
+    }
+  });
+
+  const classifyCancelBtn = rootEl.querySelector("#classify-cancel");
+  classifyCancelBtn?.addEventListener("click", async () => {
+    try {
+      await cancelClassify();
+      classifyStatus = await fetchClassifyStatus();
+      stopStatusPolling();
       render();
     } catch (error) {
       alert(error.message);
@@ -98,6 +229,51 @@ function render() {
   });
 }
 
+function renderPreview(rows) {
+  const header = `
+    <div class="table-header">
+      <span>Row</span>
+      <span>Risk text</span>
+      <span>Level</span>
+      <span>Department</span>
+    </div>`;
+  const body = rows
+    .map(
+      (row) => `
+        <div class="table-row">
+          <span>${row.source_row}</span>
+          <span>${row.risk_text || ""}</span>
+          <span>${row.label_level || ""}</span>
+          <span>${row.label_dept || ""}</span>
+        </div>`
+    )
+    .join("");
+  return `<div class="table-placeholder">${header}${body}</div>`;
+}
+
+function stopStatusPolling() {
+  if (statusInterval) {
+    clearInterval(statusInterval);
+    statusInterval = null;
+  }
+}
+
+function startStatusPolling() {
+  stopStatusPolling();
+  statusInterval = setInterval(async () => {
+    try {
+      classifyStatus = await fetchClassifyStatus();
+      if (classifyStatus?.status !== "running") {
+        stopStatusPolling();
+      }
+      render();
+    } catch (error) {
+      console.error("Failed to poll classify status", error);
+      stopStatusPolling();
+    }
+  }, 1000);
+}
+
 export default {
   async mount(containerEl) {
     rootEl = document.createElement("section");
@@ -114,6 +290,7 @@ export default {
     render();
   },
   unmount() {
+    stopStatusPolling();
     if (rootEl && rootEl.parentElement) {
       rootEl.parentElement.removeChild(rootEl);
     }
@@ -121,5 +298,9 @@ export default {
     stateCache = null;
     vectorResult = null;
     llmResult = null;
+    classifyFile = null;
+    classifySummary = null;
+    classifyPreview = [];
+    classifyStatus = null;
   },
 };

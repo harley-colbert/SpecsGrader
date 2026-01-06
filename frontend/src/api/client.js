@@ -1,11 +1,19 @@
-const headers = {
+const defaultHeaders = {
   "Content-Type": "application/json",
 };
 
 async function request(path, options = {}) {
+  const isFormData = options.body instanceof FormData;
+  const mergedHeaders = options.headers
+    ? { ...defaultHeaders, ...options.headers }
+    : { ...defaultHeaders };
+  if (isFormData) {
+    delete mergedHeaders["Content-Type"];
+  }
+
   const response = await fetch(path, {
-    headers,
     ...options,
+    headers: mergedHeaders,
   });
 
   if (!response.ok) {
@@ -27,10 +35,20 @@ export async function setActivePane(pane) {
   });
 }
 
-export async function loadDataset(mode, path) {
+export async function loadDataset(mode, source) {
+  if (source instanceof File) {
+    const formData = new FormData();
+    formData.append("mode", mode);
+    formData.append("file", source);
+    return request("/api/data/load", {
+      method: "POST",
+      body: formData,
+    });
+  }
+
   return request("/api/data/load", {
     method: "POST",
-    body: JSON.stringify({ mode, path }),
+    body: JSON.stringify({ mode, path: source }),
   });
 }
 
