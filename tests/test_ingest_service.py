@@ -17,7 +17,7 @@ def test_training_xlsx_selects_quote_sheet_and_row5():
     rows.append(["", "", "", "", "Risk text XLSX", "medium", "electrical"])
     df_train = pd.DataFrame(rows)
     with pd.ExcelWriter(training_xlsx, engine="openpyxl") as writer:
-        df_train.to_excel(writer, sheet_name="Quote #1", index=False, header=False)
+        df_train.to_excel(writer, sheet_name="Standards Risk Matrix 1", index=False, header=False)
 
     dataset = load_training_dataset(str(training_xlsx))
 
@@ -51,7 +51,7 @@ def test_classify_loader_handles_csv_and_xlsx():
     rows.append(["", "", "", "", "Classify XLSX Text", "", ""])
     df_classify = pd.DataFrame(rows)
     with pd.ExcelWriter(classify_xlsx, engine="openpyxl") as writer:
-        df_classify.to_excel(writer, sheet_name="Quote #A", index=False, header=False)
+        df_classify.to_excel(writer, sheet_name="Standards Risk Matrix A", index=False, header=False)
 
     xlsx_dataset = load_classify_dataset(str(classify_xlsx))
 

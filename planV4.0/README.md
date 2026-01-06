@@ -22,7 +22,7 @@ python run.py
 
 ## Input/Output rules (fixed)
 - Inputs: CSV or XLSX.
-- XLSX: must select a sheet/tab whose name contains **"Quote #"** (first match).
+- XLSX: must select a sheet/tab whose name contains **"Standards Risk Matrix"** (first match).
 - All tables start on **row 5** (1-indexed; i.e. Excel row 5 is the first data row).
 - Column E = risk description (always).
 - Training files:

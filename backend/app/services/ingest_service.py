@@ -9,9 +9,9 @@ DEPARTMENTS = {"mechanical", "electrical", "controls", "project_management"}
 
 def _select_sheet(excel_file: pd.ExcelFile) -> str:
     for sheet in excel_file.sheet_names:
-        if "quote #" in sheet.lower():
+        if "standards risk matrix" in sheet.lower():
             return sheet
-    raise ValueError("No sheet containing 'Quote #' found")
+    raise ValueError("No sheet containing 'Standards Risk Matrix' found")
 
 
 def _read_dataframe(path: pathlib.Path) -> pd.DataFrame:
