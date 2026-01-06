@@ -69,12 +69,12 @@ def create_app() -> FastAPI:
     @app.post("/api/data/load", response_class=JSONResponse)
     async def load_data(
         payload: Dict[str, str] | None = Body(None),
-        mode_form: str | None = Form(None),
-        path_form: str | None = Form(None),
+        mode: str | None = Form(None),
+        path: str | None = Form(None),
         file: UploadFile | None = File(None),
     ) -> Dict[str, Any]:
-        mode = mode_form or (payload.get("mode") if payload else None)
-        path = path_form or (payload.get("path") if payload else None)
+        mode = mode or (payload.get("mode") if payload else None)
+        path = path or (payload.get("path") if payload else None)
 
         if mode not in {"train", "classify"}:
             message = "Invalid load request; mode must be either 'train' or 'classify'"
