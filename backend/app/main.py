@@ -1,4 +1,5 @@
 import json
+import logging
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict
@@ -19,6 +20,8 @@ from .services.aggregate_service import aggregate_outputs
 from .services.job_manager import JobManager
 
 ALLOWED_PANES = {"train", "classify", "results"}
+
+logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
@@ -74,7 +77,9 @@ def create_app() -> FastAPI:
         path = path_form or (payload.get("path") if payload else None)
 
         if mode not in {"train", "classify"}:
-            raise HTTPException(status_code=400, detail="Invalid load request")
+            message = "Invalid load request; mode must be either 'train' or 'classify'"
+            logger.warning(message)
+            raise HTTPException(status_code=400, detail=message)
 
         if file is not None:
             uploads_dir = workspace_dir / "uploads"
@@ -86,19 +91,48 @@ def create_app() -> FastAPI:
             path = str(target_path)
 
         if not path:
-            raise HTTPException(status_code=400, detail="No file provided for load request")
+            message = "No file provided for load request"
+            logger.warning(message)
+            raise HTTPException(status_code=400, detail=message)
+
+        normalized_path = Path(path).expanduser()
+        if not normalized_path.exists():
+            message = f"Load request failed: path does not exist -> {normalized_path}"
+            logger.warning(message)
+            raise HTTPException(status_code=400, detail=message)
+
+        if normalized_path.is_dir():
+            message = f"Load request failed: expected a file but found directory -> {normalized_path}"
+            logger.warning(message)
+            raise HTTPException(status_code=400, detail=message)
+
+        safe_path = str(normalized_path)
 
         try:
             if mode == "train":
-                dataset = load_training_dataset(path)
+                dataset = load_training_dataset(safe_path)
                 app_state.training_dataset = dataset
                 app_state.data_loaded["train"] = True
             else:
-                dataset = load_classify_dataset(path)
+                dataset = load_classify_dataset(safe_path)
                 app_state.classify_dataset = dataset
                 app_state.data_loaded["classify"] = True
         except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            error_message = (
+                "Failed to load dataset "
+                f"(mode='{mode}', path='{safe_path}'): {exc}"
+            )
+            logger.exception(error_message)
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": error_message,
+                    "mode": mode,
+                    "path": safe_path,
+                    "error": str(exc),
+                    "exception": exc.__class__.__name__,
+                },
+            ) from exc
 
         return dataset.get("summary", {})
 
