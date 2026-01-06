@@ -2,9 +2,10 @@ __version__ = "2.1.0"
 
 from ui_main_window import SpecsGraderMainWindow
 
+
 def main(preloaded=None):
     """
-    Launches the main DualSpecClassifierApp window.
+    Launches the main SpecsGraderMainWindow window.
 
     Args:
         preloaded: dict of models and resources loaded by the splash screen (optional).
@@ -18,11 +19,18 @@ def main(preloaded=None):
     window.show()
     # Note: QApplication.exec() is called in splash.py, not here.
 
+
 # If you want to support running this file directly (not required if always using splash.py):
 if __name__ == "__main__":
     import sys
     from PySide6.QtWidgets import QApplication
+
     app = QApplication(sys.argv)
-    window = SpecsGraderMainWindow()
+
+    # Make sure SpecsGraderMainWindow.__init__ accepts debug: bool = False
+    # e.g. def __init__(self, preloaded=None, debug: bool = False, parent=None):
+    window = SpecsGraderMainWindow(debug=True)
+
     window.show()
     sys.exit(app.exec())
+

@@ -34,9 +34,10 @@ from ui_theme import apply_theme
 
 
 class SpecsGraderMainWindow(QMainWindow):
-    def __init__(self, preloaded=None):
+    def __init__(self, preloaded=None, debug: bool = False):
         super().__init__()
         self.setWindowTitle(APP_TITLE)
+        self.debug = debug
         self.resize(1300, 900)
         apply_theme(self)
 
@@ -175,8 +176,15 @@ class SpecsGraderMainWindow(QMainWindow):
         self.update_training_summary()
 
     def pick_training_file(self):
+        """
+        Let the user choose a training file (CSV or Excel).
+        The underlying training logic handles both formats read-only.
+        """
         fname, _ = QFileDialog.getOpenFileName(
-            self, "Select Training CSV", "", "CSV Files (*.csv)"
+            self,
+            "Select Training File",
+            "",
+            "Training Files (*.csv *.xlsx *.xls);;CSV Files (*.csv);;Excel Files (*.xlsx *.xls)",
         )
         if fname:
             self.set_training_file(fname)
@@ -185,7 +193,9 @@ class SpecsGraderMainWindow(QMainWindow):
         if not self.state.train_csv_path:
             self.import_page.set_dataset_summary(None, None, None)
             return
-        ok, rows, labeled, last_modified, err = summarize_training_file(self.state.train_csv_path)
+        ok, rows, labeled, last_modified, err = summarize_training_file(
+            self.state.train_csv_path
+        )
         if ok:
             self.import_page.set_dataset_summary(rows, labeled, last_modified)
         else:
@@ -210,7 +220,10 @@ class SpecsGraderMainWindow(QMainWindow):
         if not self.state.models:
             return
         name, _ = QFileDialog.getSaveFileName(
-            self, "Save Model Set", str(Path.home() / "model_set.json"), "JSON (*.json)"
+            self,
+            "Save Model Set",
+            str(Path.home() / "model_set.json"),
+            "JSON (*.json)",
         )
         if not name:
             return
