@@ -4,7 +4,7 @@
 Implement strict file ingest rules for training and classification datasets:
 
 - Accept CSV or XLSX
-- XLSX uses first sheet containing "Quote #"
+- XLSX uses first sheet containing "Standards Risk Matrix"
 - Data begins at row 5
 - Column mapping:
   - E = risk description (always)
@@ -66,7 +66,7 @@ Classify pane:
 
 ## Testing (must run and pass)
 Add fixtures in `tests/fixtures/`:
-- `training_sample.xlsx` with multiple tabs (one contains “Quote #”)
+- `training_sample.xlsx` with multiple tabs (one contains “Standards Risk Matrix”)
 - `classify_sample.xlsx`
 - CSV equivalents
 
@@ -76,7 +76,7 @@ python -m pytest -q
 ```
 
 Required tests:
-- loads correct sheet by name containing “Quote #”
+- loads correct sheet by name containing “Standards Risk Matrix”
 - starts at row 5 exactly
 - reads correct columns E/F/G
 - validates labels against enums
@@ -87,7 +87,7 @@ Manual:
 
 ## Success checklist
 - [ ] CSV and XLSX ingest both work
-- [ ] XLSX selects “Quote #” tab correctly
+- [ ] XLSX selects “Standards Risk Matrix” tab correctly
 - [ ] Row 5 start honored
 - [ ] Column E/F/G mapping honored
 - [ ] Dataset summaries show clear errors/warnings (no silent failures)

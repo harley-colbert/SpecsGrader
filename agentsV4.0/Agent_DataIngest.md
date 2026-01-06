@@ -1,11 +1,11 @@
 # Agent_DataIngest
 
 ## Purpose
-Implement CSV/XLSX ingest rules and canonical row mapping exactly as specified (row 5 start, columns E/F/G, “Quote #” sheet selection).
+Implement CSV/XLSX ingest rules and canonical row mapping exactly as specified (row 5 start, columns E/F/G, “Standards Risk Matrix” sheet selection).
 
 ## Responsibilities
 - CSV and XLSX loaders
-- XLSX: select first sheet containing 'Quote #'
+- XLSX: select first sheet containing 'Standards Risk Matrix'
 - Start at row 5, 1-indexed
 - Column E always risk text
 - Training: F risk level, G department

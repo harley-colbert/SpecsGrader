@@ -44,7 +44,7 @@ python -m pytest -q
 
 ## File format rules
 - Inputs: CSV or XLSX.
-- XLSX sheets: first sheet whose name contains “Quote #”.
+- XLSX sheets: first sheet whose name contains “Standards Risk Matrix”.
 - Data starts on row 5 (1-indexed). Column E = risk text, Column F = risk level
   (train), Column G = department (train).
 

@@ -20,7 +20,7 @@
 
 ## Fixtures
 Maintain minimal fixtures in `tests/fixtures/`:
-- training_sample.xlsx (has “Quote #” sheet)
+- training_sample.xlsx (has “Standards Risk Matrix” sheet)
 - classify_sample.xlsx
 - csv equivalents
 

@@ -69,7 +69,7 @@ Project root `README.md` must include:
 - `python run.py`
 - env var setup for OpenRouter (optional)
 - how to enable never-send mode
-- file format rules (row 5, col E/F/G, Quote # tab)
+- file format rules (row 5, col E/F/G, Standards Risk Matrix tab)
 - how corrections persistence works
 
 ## Testing (must run and pass)
