@@ -162,6 +162,13 @@ export async function createModelSet(modelset_id, name, description = "") {
   });
 }
 
+export async function updateModelSet(modelset_id, payload = {}) {
+  return request(`/api/modelsets/${encodeURIComponent(modelset_id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function deleteModelSet(modelset_id) {
   return request(`/api/modelsets/${encodeURIComponent(modelset_id)}`, {
     method: "DELETE",
@@ -173,6 +180,18 @@ export async function saveModelSetVersion(modelset_id, payload = {}) {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function deleteModelSetVersion(modelset_id, version_id, force = false) {
+  const params = new URLSearchParams();
+  if (force) params.set("force", "true");
+  const query = params.toString();
+  return request(
+    `/api/modelsets/${encodeURIComponent(modelset_id)}/versions/${encodeURIComponent(version_id)}${query ? `?${query}` : ""}`,
+    {
+      method: "DELETE",
+    }
+  );
 }
 
 export async function loadModelSet(modelset_id, version_id = null) {

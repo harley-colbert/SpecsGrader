@@ -29,7 +29,7 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
 
     settings = get_settings()
-    app = FastAPI(title="SpecsGrader", version="4.2.0")
+    app = FastAPI(title="SpecsGrader", version="4.3.0")
     app_state: AppState = get_state()
 
     frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
@@ -58,6 +58,7 @@ def create_app() -> FastAPI:
         app_state=app_state,
         rule_service=rule_service,
         vector_service=vector_service,
+        app_version=app.version,
     )
     llm_service = LLMService()
     classify_job = JobManager()
@@ -243,6 +244,11 @@ def create_app() -> FastAPI:
         vector_service.build(rows)
         return {"built": True, "k": k, "path": app_state.vector_store.get("path")}
 
+    @app.get("/api/vector/status", response_class=JSONResponse)
+    async def vector_status() -> Dict[str, Any]:
+        built = bool(app_state.vector_store.get("built"))
+        return {"available": built, "path": app_state.vector_store.get("path") if built else None}
+
     @app.post("/api/vector/test", response_class=JSONResponse)
     async def vector_test(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
         text = payload.get("text", "")
@@ -269,6 +275,7 @@ def create_app() -> FastAPI:
                     "modelset_id": ms.modelset_id,
                     "name": ms.name,
                     "description": ms.description,
+                    "tags": ms.tags,
                     "created_at": ms.created_at,
                     "updated_at": ms.updated_at,
                     "latest_version_id": ms.latest_version_id,
@@ -285,13 +292,19 @@ def create_app() -> FastAPI:
         name = str(payload.get("name") or "").strip()
         modelset_id = str(payload.get("modelset_id") or "").strip()
         description = str(payload.get("description") or "").strip()
+        tags = payload.get("tags")
         if not name and not modelset_id:
             raise HTTPException(status_code=400, detail="name or modelset_id is required")
         if not modelset_id:
             # derive a stable-ish id from name
             modelset_id = "".join([c for c in name.lower().replace(" ", "-") if c.isalnum() or c in {"-", "_"}])
         try:
-            ms = modelset_service.create_modelset(modelset_id=modelset_id, name=name or modelset_id, description=description)
+            ms = modelset_service.create_modelset(
+                modelset_id=modelset_id,
+                name=name or modelset_id,
+                description=description,
+                tags=tags,
+            )
         except FileExistsError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:
@@ -302,6 +315,38 @@ def create_app() -> FastAPI:
                 "modelset_id": ms.modelset_id,
                 "name": ms.name,
                 "description": ms.description,
+                "tags": ms.tags,
+                "created_at": ms.created_at,
+                "updated_at": ms.updated_at,
+                "latest_version_id": ms.latest_version_id,
+                "versions": ms.versions,
+            },
+        }
+
+    @app.patch("/api/modelsets/{modelset_id}", response_class=JSONResponse)
+    async def modelsets_update(modelset_id: str, payload: Dict[str, Any] = Body(None)) -> Dict[str, Any]:
+        payload = payload or {}
+        name = payload.get("name")
+        description = payload.get("description")
+        tags = payload.get("tags")
+        try:
+            ms = modelset_service.update_modelset(
+                modelset_id=modelset_id,
+                name=str(name) if name is not None else None,
+                description=str(description) if description is not None else None,
+                tags=tags,
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {
+            "updated": True,
+            "modelset": {
+                "modelset_id": ms.modelset_id,
+                "name": ms.name,
+                "description": ms.description,
+                "tags": ms.tags,
                 "created_at": ms.created_at,
                 "updated_at": ms.updated_at,
                 "latest_version_id": ms.latest_version_id,
@@ -320,10 +365,16 @@ def create_app() -> FastAPI:
     @app.post("/api/modelsets/{modelset_id}/versions", response_class=JSONResponse)
     async def modelsets_save_version(modelset_id: str, payload: Dict[str, Any] = Body(None)) -> Dict[str, Any]:
         payload = payload or {}
+        note = payload.get("notes")
+        if note is None:
+            note = payload.get("note")
+        parent_version_id = payload.get("parent_version_id")
         try:
             meta = modelset_service.save_version(
                 modelset_id=modelset_id,
-                note=str(payload.get("note") or ""),
+                note=str(note or ""),
+                notes=str(note or ""),
+                parent_version_id=str(parent_version_id) if parent_version_id else None,
                 include_bundle=bool(payload.get("include_bundle", True)),
                 include_vector_store=bool(payload.get("include_vector_store", True)),
                 include_rules=bool(payload.get("include_rules", True)),
@@ -334,6 +385,16 @@ def create_app() -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return {"saved": True, "version": meta}
+
+    @app.delete("/api/modelsets/{modelset_id}/versions/{version_id}", response_class=JSONResponse)
+    async def modelsets_delete_version(modelset_id: str, version_id: str, force: bool = False) -> Dict[str, Any]:
+        try:
+            modelset_service.delete_version(modelset_id=modelset_id, version_id=version_id, force=force)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"deleted": True, "modelset_id": modelset_id, "version_id": version_id, "forced": force}
 
     @app.post("/api/modelsets/{modelset_id}/load", response_class=JSONResponse)
     async def modelsets_load(modelset_id: str, payload: Dict[str, Any] = Body(None)) -> Dict[str, Any]:

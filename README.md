@@ -1,6 +1,6 @@
 # SpecsGrader
 
-This repository follows the SpecsGrader plan V4.0. Run the application from the
+This repository follows the SpecsGrader plan V4.3. Run the application from the
 project root; it serves the backend and frontend on the same port and opens a
 PyWebView window to the local URL. The UI currently exposes a three-pane shell
 (Train, Classify, Results) driven by backend state.
@@ -25,11 +25,12 @@ python run.py
   `backend/app/services/training_service.py` with `/api/train/start`,
   `/api/train/status`, `/api/train/cancel`, and `/api/train/metrics`.
 - Vector: local TF-IDF embeddings and ANN queries via `backend/app/services/vector_service.py`
-  with `/api/vector/build` and `/api/vector/test`.
+  with `/api/vector/build`, `/api/vector/test`, and `/api/vector/status`.
 - ModelSets: versioned, on-disk bundles of (trained model artifacts + vector store + rules)
   with import/export to a single `.sgm` archive via `backend/app/services/modelset_service.py`.
   API endpoints: `/api/modelsets`, `/api/modelsets/{id}/versions`, `/api/modelsets/{id}/load`,
-  `/api/modelsets/{id}/export`, and `/api/modelsets/import`.
+  `/api/modelsets/{id}/export`, `/api/modelsets/import`, plus `PATCH /api/modelsets/{id}` and
+  `DELETE /api/modelsets/{id}/versions/{version_id}` for metadata updates and guarded deletes.
 - LLM: OpenRouter-backed service with never-send mode in
   `backend/app/services/llm_service.py` and settings via `/api/settings`.
 - Tests: pytest suite under `tests/`.
@@ -56,3 +57,10 @@ python -m pytest -q
 `/api/export/csv` should emit a CSV preserving original columns and appending:
 id, risk_text, pred_level, pred_dept, confidence, methods_used, model_bundle_id,
 user_override_level, user_override_dept.
+
+## ModelSets and .sgm
+- A ModelSet is a **family** (stable ID, name, description, tags) with **immutable versions**.
+- Saving a snapshot creates a new version (no in-place updates).
+- Loading a version updates the active modelset/version in app state.
+- `.sgm` exports include `manifest.json` and `checksums.sha256`; imports validate checksums
+  and block unsafe zip contents or version collisions.

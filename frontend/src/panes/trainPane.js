@@ -11,8 +11,10 @@ import {
   buildVectorStore,
   listModelSets,
   createModelSet,
+  updateModelSet,
   deleteModelSet,
   saveModelSetVersion,
+  deleteModelSetVersion,
   loadModelSet,
   exportModelSetUrl,
   importModelSet,
@@ -39,6 +41,9 @@ let modelsetVersionSelectId = "";
 let newModelsetId = "";
 let newModelsetName = "";
 let newModelsetDescription = "";
+let editModelsetName = "";
+let editModelsetDescription = "";
+let editModelsetTags = "";
 let importFile = null;
 let trainingParams = {
   oversample_enabled: false,
@@ -75,6 +80,7 @@ async function refreshModelSets() {
     } else {
       modelsetVersionSelectId = "";
     }
+    syncModelsetEditor();
   } catch (error) {
     console.error("Failed to refresh modelsets", error);
   } finally {
@@ -220,10 +226,23 @@ function renderModelsetVersionOptions() {
     .map((v) => {
       const vid = v.version_id;
       const selected = vid === modelsetVersionSelectId ? "selected" : "";
-      const note = v.note ? ` - ${v.note}` : "";
+      const note = v.note || v.notes ? ` - ${v.note || v.notes}` : "";
       return `<option value="${vid}" ${selected}>${vid}${note}</option>`;
     })
     .join("");
+}
+
+function syncModelsetEditor() {
+  const selected = getSelectedModelset();
+  if (!selected) {
+    editModelsetName = "";
+    editModelsetDescription = "";
+    editModelsetTags = "";
+    return;
+  }
+  editModelsetName = selected.name || "";
+  editModelsetDescription = selected.description || "";
+  editModelsetTags = (selected.tags || []).join(", ");
 }
 
 function render(state) {
@@ -237,6 +256,99 @@ function render(state) {
   rootEl.innerHTML = `
     <h2>Train</h2>
     <p>Load a training file, configure rules, train models, and build a vector store.</p>
+    <div class="card modelset-card">
+      <div class="modelset-header">
+        <h3>Model sets (.sgm)</h3>
+        <p class="modelset-description">
+          Save / load named, versioned ModelSets that bundle trained models, the vector store, and rules.
+          Export / import as a single <code>.sgm</code> file.
+        </p>
+      </div>
+
+      <div class="modelset-grid">
+        <label class="field modelset-field">
+          <span>Existing ModelSet</span>
+          <select id="modelset-select" ${modelsetsLoading ? "disabled" : ""}>
+            ${renderModelsetSelectOptions()}
+          </select>
+        </label>
+        <label class="field modelset-field">
+          <span>Version</span>
+          <select id="modelset-version-select" ${modelsetsLoading ? "disabled" : ""}>
+            ${renderModelsetVersionOptions()}
+          </select>
+        </label>
+        <div class="field modelset-field">
+          <span>Active in app</span>
+          <div class="chip-row">
+            <span class="chip">${state.active_modelset_id ? state.active_modelset_id : "(none)"}</span>
+            <span class="chip chip-muted">${state.active_modelset_version_id ? state.active_modelset_version_id : "(none)"}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modelset-actions">
+        <button id="modelset-refresh" ${modelsetsLoading ? "disabled" : ""}>${modelsetsLoading ? "Refreshing..." : "Refresh"}</button>
+        <button id="modelset-save" ${modelsetSelectId ? "" : "disabled"}>Save snapshot (new version)</button>
+        <button id="modelset-load" ${modelsetSelectId && modelsetVersionSelectId ? "" : "disabled"}>Load selected version</button>
+        <button id="modelset-export" ${modelsetSelectId && modelsetVersionSelectId ? "" : "disabled"}>Export .sgm</button>
+        <button id="modelset-import" ${importFile ? "" : "disabled"}>Import</button>
+        <button id="modelset-delete-version" class="danger" ${modelsetSelectId && modelsetVersionSelectId ? "" : "disabled"}>Delete version</button>
+        <button id="modelset-delete" class="danger" ${modelsetSelectId ? "" : "disabled"}>Delete ModelSet</button>
+      </div>
+
+      <div class="card-grid modelset-subgrid">
+        <div class="card card-inset modelset-inset">
+          <h4>Create new ModelSet</h4>
+          <div class="param-grid modelset-param-grid">
+            <label class="field">
+              <span>ModelSet ID (optional)</span>
+              <input type="text" id="modelset-new-id" placeholder="e.g. customer_a_risk_v1" value="${safeString(newModelsetId)}" />
+            </label>
+            <label class="field">
+              <span>Name</span>
+              <input type="text" id="modelset-new-name" placeholder="e.g. Customer A – Risk" value="${safeString(newModelsetName)}" />
+            </label>
+            <label class="field">
+              <span>Description</span>
+              <input type="text" id="modelset-new-desc" placeholder="optional" value="${safeString(newModelsetDescription)}" />
+            </label>
+          </div>
+          <div class="rule-actions">
+            <button id="modelset-create">Create</button>
+          </div>
+        </div>
+        <div class="card card-inset modelset-inset">
+          <h4>Edit ModelSet metadata</h4>
+          <div class="param-grid modelset-param-grid">
+            <label class="field">
+              <span>Name</span>
+              <input type="text" id="modelset-edit-name" placeholder="ModelSet name" value="${safeString(editModelsetName)}" />
+            </label>
+            <label class="field">
+              <span>Description</span>
+              <input type="text" id="modelset-edit-desc" placeholder="optional" value="${safeString(editModelsetDescription)}" />
+            </label>
+            <label class="field">
+              <span>Tags (comma-separated)</span>
+              <input type="text" id="modelset-edit-tags" placeholder="e.g. customer, v4" value="${safeString(editModelsetTags)}" />
+            </label>
+          </div>
+          <div class="rule-actions">
+            <button id="modelset-update" ${modelsetSelectId ? "" : "disabled"}>Update metadata</button>
+          </div>
+        </div>
+        <div class="card card-inset modelset-inset">
+          <h4>Import .sgm</h4>
+          <label class="field">
+            <span>Choose .sgm file</span>
+            <input type="file" id="modelset-import-file" accept=".sgm" />
+            ${importFile ? `<small>Selected: ${importFile.name}</small>` : ""}
+          </label>
+          <small class="muted">Use Import in the action row above.</small>
+        </div>
+      </div>
+    </div>
     <div class="card">
       <label class="field">
         <span>Training file (uses native OS picker)</span>
@@ -330,77 +442,6 @@ function render(state) {
       <div class="rule-result">${renderRuleResult()}</div>
     </div>
 
-    <div class="card">
-      <h3>Model sets (.sgm)</h3>
-      <p>
-        Save / load named, versioned ModelSets that bundle trained models, the vector store, and rules.
-        Export / import as a single <code>.sgm</code> file.
-      </p>
-
-      <div class="param-grid">
-        <label class="field">
-          <span>Existing ModelSet</span>
-          <select id="modelset-select" ${modelsetsLoading ? "disabled" : ""}>
-            ${renderModelsetSelectOptions()}
-          </select>
-        </label>
-        <label class="field">
-          <span>Version</span>
-          <select id="modelset-version-select" ${modelsetsLoading ? "disabled" : ""}>
-            ${renderModelsetVersionOptions()}
-          </select>
-        </label>
-        <div class="field">
-          <span>Active in app</span>
-          <div class="chip-row">
-            <span class="chip">${state.active_modelset_id ? state.active_modelset_id : "(none)"}</span>
-            <span class="chip chip-muted">${state.active_modelset_version_id ? state.active_modelset_version_id : "(none)"}</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="train-actions">
-        <button id="modelset-refresh" ${modelsetsLoading ? "disabled" : ""}>${modelsetsLoading ? "Refreshing..." : "Refresh"}</button>
-        <button id="modelset-save" ${modelsetSelectId ? "" : "disabled"}>Save snapshot (new version)</button>
-        <button id="modelset-load" ${modelsetSelectId && modelsetVersionSelectId ? "" : "disabled"}>Load selected version</button>
-        <button id="modelset-export" ${modelsetSelectId && modelsetVersionSelectId ? "" : "disabled"}>Export .sgm</button>
-        <button id="modelset-delete" class="danger" ${modelsetSelectId ? "" : "disabled"}>Delete ModelSet</button>
-      </div>
-
-      <div class="card-grid">
-        <div class="card card-inset">
-          <h4>Create new ModelSet</h4>
-          <div class="param-grid">
-            <label class="field">
-              <span>ModelSet ID (optional)</span>
-              <input type="text" id="modelset-new-id" placeholder="e.g. customer_a_risk_v1" value="${safeString(newModelsetId)}" />
-            </label>
-            <label class="field">
-              <span>Name</span>
-              <input type="text" id="modelset-new-name" placeholder="e.g. Customer A – Risk" value="${safeString(newModelsetName)}" />
-            </label>
-            <label class="field">
-              <span>Description</span>
-              <input type="text" id="modelset-new-desc" placeholder="optional" value="${safeString(newModelsetDescription)}" />
-            </label>
-          </div>
-          <div class="rule-actions">
-            <button id="modelset-create">Create</button>
-          </div>
-        </div>
-        <div class="card card-inset">
-          <h4>Import .sgm</h4>
-          <label class="field">
-            <span>Choose .sgm file</span>
-            <input type="file" id="modelset-import-file" accept=".sgm" />
-            ${importFile ? `<small>Selected: ${importFile.name}</small>` : ""}
-          </label>
-          <div class="rule-actions">
-            <button id="modelset-import" ${importFile ? "" : "disabled"}>Import</button>
-          </div>
-        </div>
-      </div>
-    </div>
   `;
 
   const loadBtn = rootEl.querySelector("#train-load");
@@ -528,10 +569,15 @@ function render(state) {
   const msSaveBtn = rootEl.querySelector("#modelset-save");
   const msLoadBtn = rootEl.querySelector("#modelset-load");
   const msExportBtn = rootEl.querySelector("#modelset-export");
+  const msDeleteVersionBtn = rootEl.querySelector("#modelset-delete-version");
   const msDeleteBtn = rootEl.querySelector("#modelset-delete");
   const msNewId = rootEl.querySelector("#modelset-new-id");
   const msNewName = rootEl.querySelector("#modelset-new-name");
   const msNewDesc = rootEl.querySelector("#modelset-new-desc");
+  const msEditName = rootEl.querySelector("#modelset-edit-name");
+  const msEditDesc = rootEl.querySelector("#modelset-edit-desc");
+  const msEditTags = rootEl.querySelector("#modelset-edit-tags");
+  const msUpdateBtn = rootEl.querySelector("#modelset-update");
   const msCreateBtn = rootEl.querySelector("#modelset-create");
   const msImportFile = rootEl.querySelector("#modelset-import-file");
   const msImportBtn = rootEl.querySelector("#modelset-import");
@@ -540,6 +586,7 @@ function render(state) {
     msSelect.addEventListener("change", async () => {
       modelsetSelectId = msSelect.value || "";
       modelsetVersionSelectId = "";
+      syncModelsetEditor();
       render(lastState);
     });
   }
@@ -561,10 +608,11 @@ function render(state) {
   if (msSaveBtn) {
     msSaveBtn.addEventListener("click", async () => {
       if (!modelsetSelectId) return;
-      const note = window.prompt("Optional note for this version:", "") || "";
+      const notes = window.prompt("Optional notes for this version:", "") || "";
       try {
         await saveModelSetVersion(modelsetSelectId, {
-          note,
+          notes,
+          parent_version_id: modelsetVersionSelectId || null,
           include_bundle: true,
           include_vector_store: true,
           include_rules: true,
@@ -646,6 +694,32 @@ function render(state) {
     });
   }
 
+  if (msDeleteVersionBtn) {
+    msDeleteVersionBtn.addEventListener("click", async () => {
+      if (!modelsetSelectId || !modelsetVersionSelectId) return;
+      const isActive =
+        lastState?.active_modelset_id === modelsetSelectId &&
+        lastState?.active_modelset_version_id === modelsetVersionSelectId;
+      if (!window.confirm(`Delete version '${modelsetVersionSelectId}'? This cannot be undone.`)) {
+        return;
+      }
+      let force = false;
+      if (isActive) {
+        force = window.confirm("This version is active. Force delete and clear active version?");
+        if (!force) return;
+      }
+      try {
+        await deleteModelSetVersion(modelsetSelectId, modelsetVersionSelectId, force);
+        modelsetVersionSelectId = "";
+        await refreshModelSets();
+        await syncState();
+        render(lastState);
+      } catch (error) {
+        alert(error.message);
+      }
+    });
+  }
+
   if (msDeleteBtn) {
     msDeleteBtn.addEventListener("click", async () => {
       if (!modelsetSelectId) return;
@@ -677,6 +751,47 @@ function render(state) {
   if (msNewDesc) {
     msNewDesc.addEventListener("input", () => {
       newModelsetDescription = msNewDesc.value || "";
+    });
+  }
+
+  if (msEditName) {
+    msEditName.addEventListener("input", () => {
+      editModelsetName = msEditName.value || "";
+    });
+  }
+
+  if (msEditDesc) {
+    msEditDesc.addEventListener("input", () => {
+      editModelsetDescription = msEditDesc.value || "";
+    });
+  }
+
+  if (msEditTags) {
+    msEditTags.addEventListener("input", () => {
+      editModelsetTags = msEditTags.value || "";
+    });
+  }
+
+  if (msUpdateBtn) {
+    msUpdateBtn.addEventListener("click", async () => {
+      if (!modelsetSelectId) return;
+      const name = (editModelsetName || "").trim();
+      const description = (editModelsetDescription || "").trim();
+      const tags = (editModelsetTags || "")
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean);
+      if (!name) {
+        alert("ModelSet name cannot be empty.");
+        return;
+      }
+      try {
+        await updateModelSet(modelsetSelectId, { name, description, tags });
+        await refreshModelSets();
+        render(lastState);
+      } catch (error) {
+        alert(error.message);
+      }
     });
   }
 
