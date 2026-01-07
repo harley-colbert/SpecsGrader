@@ -152,6 +152,19 @@ function formatSecondsSince(ts) {
   }
 }
 
+function updateVectorBuildStatusFromState(state) {
+  const vectorState = state?.vector_store || null;
+  if (!vectorState) {
+    vectorBuildStatus = null;
+    return;
+  }
+  if (vectorState.built) {
+    vectorBuildStatus = vectorState.path ? `Built at ${vectorState.path}` : "Built";
+    return;
+  }
+  vectorBuildStatus = "Not built";
+}
+
 function renderMiniJson(obj) {
   try {
     return `<pre class="mini-code">${safeString(JSON.stringify(obj, null, 2))}</pre>`;
@@ -641,6 +654,7 @@ function render(state) {
         const loadedState = await syncState();
         const dataset = loadedState?.training_dataset || null;
         summary = dataset?.summary || null;
+        updateVectorBuildStatusFromState(loadedState);
         if (Array.isArray(dataset?.rows)) {
           preview = dataset.rows.slice(0, 10);
         } else {
