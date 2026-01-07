@@ -94,6 +94,44 @@ body {
   min-height: 160px;
 }
 
+.modelset-card {
+  padding: 0.75rem;
+  min-height: auto;
+}
+
+.modelset-header {
+  margin-bottom: 0.5rem;
+}
+
+.modelset-description {
+  margin: 0.25rem 0 0;
+  color: #4b5563;
+}
+
+.modelset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.modelset-field {
+  margin-bottom: 0;
+}
+
+.modelset-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.modelset-actions button {
+  padding: 0.45rem 0.85rem;
+  font-size: 0.9rem;
+}
+
 .card h3 {
   margin-top: 0;
   margin-bottom: 0.35rem;
@@ -168,6 +206,12 @@ textarea.code-area {
   margin-bottom: 0.75rem;
 }
 
+.modelset-param-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
 .stats {
   list-style: none;
   padding: 0;
@@ -217,6 +261,14 @@ button.danger:disabled {
 .card.card-inset {
   background: #f9fafb;
   border: 1px dashed #d1d5db;
+}
+
+.modelset-subgrid {
+  gap: 0.5rem;
+}
+
+.modelset-inset {
+  padding: 0.75rem;
 }
 
 .muted {

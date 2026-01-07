@@ -5,6 +5,7 @@ from typing import Optional
 
 import uvicorn
 import webview
+from webview.errors import WebViewException
 
 from backend.app.main import create_app
 from backend.app.settings import get_settings
@@ -51,10 +52,18 @@ def main() -> None:
     controller.start()
 
     url = f"http://127.0.0.1:{settings.port}/"
-
-    webview.create_window("SpecsGrader", url, width=1200, height=800)
-    webview.start(debug=True)
-    controller.stop()
+    try:
+        webview.create_window("SpecsGrader", url, width=1200, height=800)
+        webview.start(debug=True)
+    except WebViewException as exc:
+        print(f"[run.py] Webview unavailable ({exc}). Running in headless mode.")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass
+    finally:
+        controller.stop()
 
 
 if __name__ == "__main__":
