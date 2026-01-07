@@ -632,6 +632,12 @@ function render(state) {
       if (!modelsetSelectId || !modelsetVersionSelectId) return;
       try {
         await loadModelSet(modelsetSelectId, modelsetVersionSelectId);
+        try {
+          rulesConfig = await fetchRules();
+        } catch (error) {
+          console.error("Failed to fetch rules", error);
+          rulesConfig = null;
+        }
         await syncState();
         render(lastState);
         alert("ModelSet loaded.");
