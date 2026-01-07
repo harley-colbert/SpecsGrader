@@ -28,10 +28,10 @@ class AppState:
         default_factory=lambda: {
             "version": "1.0",
             "departments": {
-                "mechanical": {"keywords": ["bearing"], "min_hits": 1},
-                "electrical": {"keywords": ["panel"], "min_hits": 1},
-                "controls": {"keywords": ["plc"], "min_hits": 1},
-                "project_management": {"keywords": ["schedule"], "min_hits": 1},
+                "mechanical": {"keywords": ["bearing"], "hard_keywords": [], "min_hits": 1},
+                "electrical": {"keywords": ["panel"], "hard_keywords": [], "min_hits": 1},
+                "controls": {"keywords": ["plc"], "hard_keywords": [], "min_hits": 1},
+                "project_management": {"keywords": ["schedule"], "hard_keywords": [], "min_hits": 1},
             },
             "global": {
                 "case_sensitive": False,
@@ -57,6 +57,17 @@ class AppState:
             "level_model_path": None,
             "dept_model_path": None,
             "bundle_meta_path": None,
+        }
+    )
+    sanity_report: Optional[Dict[str, object]] = None
+    evaluation_report: Optional[Dict[str, object]] = None
+    production_policy: Dict[str, object] = field(
+        default_factory=lambda: {
+            "model_conf_threshold": 0.75,
+            "vector_similarity_threshold": 0.45,
+            "vector_margin_threshold": 0.1,
+            "allow_llm": False,
+            "abstain_enabled": True,
         }
     )
     vector_store: Dict[str, object] = field(

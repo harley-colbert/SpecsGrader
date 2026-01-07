@@ -22,8 +22,16 @@ let classifyPreview = [];
 let classifyStatus = null;
 let statusInterval = null;
 let thresholds = { level: 0.0, dept: 0.0, k: 5 };
-let enabledMethods = { rules: true, vector: true, llm: true };
+let enabledMethods = { rules: true, vector: true, llm: true, model: true };
 let llmModel = "openrouter/auto";
+let mode = "production";
+let policy = {
+  model_conf_threshold: 0.75,
+  vector_similarity_threshold: 0.45,
+  vector_margin_threshold: 0.1,
+  allow_llm: false,
+  abstain_enabled: true,
+};
 
 function renderVectorResult(result) {
   const neighbors = (result.neighbors || [])
@@ -33,6 +41,8 @@ function renderVectorResult(result) {
     <div class="metrics">
       <div><strong>Dept:</strong> ${result.dept_pred ?? "abstain"} (${Number(result.dept_conf).toFixed(2)})</div>
       <div><strong>Level:</strong> ${result.level_pred ?? "abstain"} (${Number(result.level_conf).toFixed(2)})</div>
+      <div><strong>Top similarity:</strong> ${Number(result.top_similarity || 0).toFixed(2)}</div>
+      <div><strong>Margin:</strong> ${Number(result.margin || 0).toFixed(2)}</div>
       <ul class="stats">${neighbors}</ul>
     </div>
   `;
@@ -78,17 +88,32 @@ function render() {
       </div>
       <div class="card">
         <h3>Run classify job</h3>
+        <label class="field">
+          <span>Mode</span>
+          <select id="mode-select">
+            <option value="production" ${mode === "production" ? "selected" : ""}>production</option>
+            <option value="evaluate" ${mode === "evaluate" ? "selected" : ""}>evaluate</option>
+            <option value="sanity" ${mode === "sanity" ? "selected" : ""}>sanity</option>
+          </select>
+        </label>
         <div class="param-grid">
           <label class="field"><span>Level threshold</span><input type="number" step="0.05" id="thresh-level" value="${thresholds.level}" /></label>
           <label class="field"><span>Department threshold</span><input type="number" step="0.05" id="thresh-dept" value="${thresholds.dept}" /></label>
           <label class="field"><span>Neighbors (k)</span><input type="number" min="1" max="20" id="thresh-k" value="${thresholds.k}" /></label>
           <label class="field"><span>LLM model</span><input type="text" id="llm-model" value="${llmModel}" ${neverSend ? "disabled" : ""} /></label>
+          <label class="field"><span>Model conf threshold</span><input type="number" step="0.05" min="0" max="1" id="policy-model-conf" value="${policy.model_conf_threshold}" /></label>
+          <label class="field"><span>Vector similarity threshold</span><input type="number" step="0.05" min="0" max="1" id="policy-vector-sim" value="${policy.vector_similarity_threshold}" /></label>
+          <label class="field"><span>Vector margin threshold</span><input type="number" step="0.05" min="0" max="1" id="policy-vector-margin" value="${policy.vector_margin_threshold}" /></label>
         </div>
         <div class="rule-actions">
+          <label class="toggle"><input type="checkbox" id="method-model" ${enabledMethods.model ? "checked" : ""} />Model</label>
           <label class="toggle"><input type="checkbox" id="method-rules" ${enabledMethods.rules ? "checked" : ""} />Rules</label>
           <label class="toggle"><input type="checkbox" id="method-vector" ${enabledMethods.vector ? "checked" : ""} />Vector</label>
           <label class="toggle"><input type="checkbox" id="method-llm" ${enabledMethods.llm && !neverSend ? "checked" : ""} ${neverSend ? "disabled" : ""} />LLM</label>
+          <label class="toggle"><input type="checkbox" id="policy-allow-llm" ${policy.allow_llm && !neverSend ? "checked" : ""} ${neverSend ? "disabled" : ""} />Allow LLM fallback</label>
+          <label class="toggle"><input type="checkbox" id="policy-abstain" ${policy.abstain_enabled ? "checked" : ""} />Allow abstain</label>
         </div>
+        <p class="muted">Defaults for mode: ${mode}</p>
         <div class="rule-actions">
           <button id="classify-start">Start classify</button>
           <button id="classify-cancel">Cancel</button>
@@ -148,19 +173,49 @@ function render() {
     }
   });
 
+  const methodModel = rootEl.querySelector("#method-model");
   const methodRules = rootEl.querySelector("#method-rules");
   const methodVector = rootEl.querySelector("#method-vector");
   const methodLlm = rootEl.querySelector("#method-llm");
-  [methodRules, methodVector, methodLlm].forEach((checkbox) => {
+  const allowLlmToggle = rootEl.querySelector("#policy-allow-llm");
+  const abstainToggle = rootEl.querySelector("#policy-abstain");
+  const modeSelect = rootEl.querySelector("#mode-select");
+  const policyModelConf = rootEl.querySelector("#policy-model-conf");
+  const policyVectorSim = rootEl.querySelector("#policy-vector-sim");
+  const policyVectorMargin = rootEl.querySelector("#policy-vector-margin");
+
+  modeSelect?.addEventListener("change", () => {
+    mode = modeSelect.value;
+    if (mode === "sanity") {
+      enabledMethods = { rules: false, vector: false, llm: false, model: true };
+    } else if (mode === "evaluate") {
+      enabledMethods = { rules: true, vector: true, llm: !neverSend, model: true };
+    } else {
+      enabledMethods = { rules: true, vector: true, llm: !neverSend, model: true };
+    }
+    render();
+  });
+  [methodModel, methodRules, methodVector, methodLlm].forEach((checkbox) => {
     checkbox?.addEventListener("change", () => {
       enabledMethods = {
         ...enabledMethods,
+        model: !!methodModel?.checked,
         rules: !!methodRules?.checked,
         vector: !!methodVector?.checked,
         llm: !!methodLlm?.checked && !neverSend,
       };
       render();
     });
+  });
+
+  allowLlmToggle?.addEventListener("change", () => {
+    policy.allow_llm = !!allowLlmToggle.checked && !neverSend;
+    render();
+  });
+
+  abstainToggle?.addEventListener("change", () => {
+    policy.abstain_enabled = !!abstainToggle.checked;
+    render();
   });
 
   const threshLevel = rootEl.querySelector("#thresh-level");
@@ -175,10 +230,20 @@ function render() {
       dept: parseFloat(threshDept?.value ?? thresholds.dept) || 0,
       k: parseInt(threshK?.value ?? thresholds.k, 10) || 5,
     };
+    policy = {
+      ...policy,
+      model_conf_threshold: parseFloat(policyModelConf?.value ?? policy.model_conf_threshold) || 0,
+      vector_similarity_threshold: parseFloat(policyVectorSim?.value ?? policy.vector_similarity_threshold) || 0,
+      vector_margin_threshold: parseFloat(policyVectorMargin?.value ?? policy.vector_margin_threshold) || 0,
+      allow_llm: policy.allow_llm && !neverSend,
+      abstain_enabled: policy.abstain_enabled,
+    };
     llmModel = llmModelInput?.value?.trim() || llmModel;
     try {
       classifyStatus = await startClassify({
+        mode,
         thresholds,
+        policy,
         enabled_methods: enabledMethods,
         k: thresholds.k,
         llm_model: llmModel,
@@ -282,6 +347,9 @@ export default {
     containerEl.appendChild(rootEl);
 
     stateCache = await fetchState();
+    if (stateCache?.production_policy) {
+      policy = { ...policy, ...stateCache.production_policy };
+    }
     const settings = await fetchSettings();
     neverSend = !!settings.never_send_externally;
     render();

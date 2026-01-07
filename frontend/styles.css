@@ -377,6 +377,11 @@ progress.progress {
   border-radius: 8px;
 }
 
+.table-5 .table-header,
+.table-5 .table-row {
+  grid-template-columns: repeat(5, 1fr);
+}
+
 .table-header {
   background: #f3f4f6;
   color: #111827;

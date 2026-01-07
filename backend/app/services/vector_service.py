@@ -13,6 +13,10 @@ class VectorPrediction:
     dept_conf: float
     level_pred: str | None
     level_conf: float
+    top_similarity: float
+    second_similarity: float
+    margin: float
+    top_neighbors: List[Dict[str, object]]
     neighbors: List[Dict[str, object]]
 
 
@@ -66,12 +70,29 @@ class VectorService:
 
         dept_pred, dept_conf = best_vote(dept_counts)
         level_pred, level_conf = best_vote(level_counts)
+        similarities = [float(n.get("similarity", 0.0)) for n in neighbors]
+        top_similarity = similarities[0] if similarities else 0.0
+        second_similarity = similarities[1] if len(similarities) > 1 else 0.0
+        margin = top_similarity - second_similarity
+        top_neighbors = [
+            {
+                "source_row": n["row"].get("source_row"),
+                "label_dept": n["row"].get("label_dept"),
+                "label_level": n["row"].get("label_level"),
+                "similarity": n.get("similarity"),
+            }
+            for n in neighbors[:3]
+        ]
 
         return VectorPrediction(
             dept_pred=dept_pred,
             dept_conf=dept_conf,
             level_pred=level_pred,
             level_conf=level_conf,
+            top_similarity=top_similarity,
+            second_similarity=second_similarity,
+            margin=margin,
+            top_neighbors=top_neighbors,
             neighbors=neighbors,
         )
 
