@@ -1,0 +1,17 @@
+You are ReleaseAgent. Execute **Phase05_Release.md** from `planV4.3/` exactly as written.
+
+Objective:
+Version bump to v4.3.x, docs updates, final packaging, ensure `python run.py` works and `pytest -q` passes.
+
+Support:
+- Coordinate with: OrchestratorAgent, QualityAgent
+- Keep changes within the phase scope.
+
+Hard requirements:
+- Run and pass: `pytest -q` and `python run.py`
+- If any test fails, fix the root cause and re-run until passing.
+- Check off every item in the phase success checklist before declaring done.
+
+Deliverable:
+- Updated repo state that satisfies the phase success checklist.
+- A short report: changed files list + test commands run + outcomes.
