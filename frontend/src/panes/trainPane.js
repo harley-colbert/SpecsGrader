@@ -638,7 +638,14 @@ function render(state) {
           console.error("Failed to fetch rules", error);
           rulesConfig = null;
         }
-        await syncState();
+        const loadedState = await syncState();
+        const dataset = loadedState?.training_dataset || null;
+        summary = dataset?.summary || null;
+        if (Array.isArray(dataset?.rows)) {
+          preview = dataset.rows.slice(0, 10);
+        } else {
+          preview = [];
+        }
         render(lastState);
         alert("ModelSet loaded.");
       } catch (error) {
