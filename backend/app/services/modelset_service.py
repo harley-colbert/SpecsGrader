@@ -448,6 +448,23 @@ class ModelSetService:
             self.app_state.training_job["dept_model_path"] = None
             self.app_state.training_job["bundle_meta_path"] = None
 
+        # training snapshot (summary + training telemetry)
+        snapshot_path = vdir / "training_snapshot.json"
+        if snapshot_path.exists():
+            snapshot = _read_json(snapshot_path)
+            dataset_summary = snapshot.get("training_dataset_summary")
+            if dataset_summary is not None:
+                self.app_state.training_dataset = {"summary": dataset_summary, "rows": []}
+            else:
+                self.app_state.training_dataset = None
+            snapshot_job = snapshot.get("training_job") or {}
+            for key in ("params", "stats", "metrics"):
+                self.app_state.training_job[key] = snapshot_job.get(key)
+        else:
+            self.app_state.training_dataset = None
+            for key in ("params", "stats", "metrics"):
+                self.app_state.training_job[key] = None
+
         self.app_state.active_modelset_id = modelset_id
         self.app_state.active_modelset_version_id = version_id
         self.app_state.active_bundle_id = modelset_id
