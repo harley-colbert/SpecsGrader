@@ -91,7 +91,8 @@ export async function cancelTraining() {
 }
 
 export async function fetchTrainingMetrics() {
-  return request("/api/train/metrics");
+  const resp = await request("/api/train/metrics");
+  return resp && resp.available ? resp.metrics : null;
 }
 
 export async function buildVectorStore(k = 5) {
@@ -143,5 +144,59 @@ export async function saveSettings(never_send_externally) {
   return request("/api/settings", {
     method: "POST",
     body: JSON.stringify({ never_send_externally }),
+  });
+}
+
+// -----------------
+// ModelSets
+// -----------------
+
+export async function listModelSets() {
+  return request("/api/modelsets");
+}
+
+export async function createModelSet(modelset_id, name, description = "") {
+  return request("/api/modelsets", {
+    method: "POST",
+    body: JSON.stringify({ modelset_id, name, description }),
+  });
+}
+
+export async function deleteModelSet(modelset_id) {
+  return request(`/api/modelsets/${encodeURIComponent(modelset_id)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function saveModelSetVersion(modelset_id, payload = {}) {
+  return request(`/api/modelsets/${encodeURIComponent(modelset_id)}/versions`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function loadModelSet(modelset_id, version_id = null) {
+  return request(`/api/modelsets/${encodeURIComponent(modelset_id)}/load`, {
+    method: "POST",
+    body: JSON.stringify({ version_id }),
+  });
+}
+
+export function exportModelSetUrl(modelset_id, version_id = null) {
+  const params = new URLSearchParams();
+  if (version_id) params.set("version_id", version_id);
+  const q = params.toString();
+  return `/api/modelsets/${encodeURIComponent(modelset_id)}/export${q ? `?${q}` : ""}`;
+}
+
+export async function importModelSet(file) {
+  if (!(file instanceof File)) {
+    throw new Error("importModelSet expects a File");
+  }
+  const formData = new FormData();
+  formData.append("file", file);
+  return request("/api/modelsets/import", {
+    method: "POST",
+    body: formData,
   });
 }

@@ -1,0 +1,26 @@
+{"source_row": 5, "id": null, "risk_text": "", "label_level": "NONE", "label_dept": "MECHANICAL"}
+{"source_row": 6, "id": null, "risk_text": "Whether to check all corners or just extents is TBD; impacts cycle time and programming.", "label_level": "MEDIUM", "label_dept": "CONTROLS"}
+{"source_row": 7, "id": null, "risk_text": "Whether to check all corners or just extents is TBD; impacts cycle time and programming.\nIf laser sensors cannot eliminate 10\u201315 seconds, may not meet cycle time.", "label_level": "MEDIUM", "label_dept": "CONTROLS"}
+{"source_row": 8, "id": null, "risk_text": "", "label_level": "LOW", "label_dept": "CONTROLS"}
+{"source_row": 9, "id": null, "risk_text": "", "label_level": "NONE", "label_dept": "MECHANICAL"}
+{"source_row": 10, "id": null, "risk_text": "", "label_level": "NONE", "label_dept": "MECHANICAL"}
+{"source_row": 11, "id": null, "risk_text": "", "label_level": "NONE", "label_dept": "MECHANICAL"}
+{"source_row": 12, "id": null, "risk_text": "", "label_level": "NONE", "label_dept": "MECHANICAL"}
+{"source_row": 13, "id": null, "risk_text": "", "label_level": "NONE", "label_dept": "MECHANICAL"}
+{"source_row": 14, "id": null, "risk_text": "IMPLIED: Cycle time may be exceeded if additional checks or slower programming are required.\nMay not be able to meet cycle time if additional checks or slower programming are required.", "label_level": "MEDIUM", "label_dept": "CONTROLS"}
+{"source_row": 15, "id": null, "risk_text": "If frame tolerance is \u00b11/8 inch, bead application must be exact; stack-up may not fit.\nRobot path rounding at corners may affect bead placement tolerance", "label_level": "MEDIUM", "label_dept": "CONTROLS"}
+{"source_row": 16, "id": null, "risk_text": "RISK: Bead location requirement is unclear; may impact design and programming.\nBead location and frame tolerance clarification is still pending from customer.", "label_level": "MEDIUM", "label_dept": "CONTROLS"}
+{"source_row": 17, "id": null, "risk_text": "If frame tolerance is \u00b11/8 inch, bead application must be exact; stack-up may not fit.", "label_level": "MEDIUM", "label_dept": "CONTROLS"}
+{"source_row": 18, "id": null, "risk_text": "", "label_level": "NONE", "label_dept": "MECHANICAL"}
+{"source_row": 19, "id": null, "risk_text": "", "label_level": "NONE", "label_dept": "MECHANICAL"}
+{"source_row": 20, "id": null, "risk_text": "", "label_level": "NONE", "label_dept": "MECHANICAL"}
+{"source_row": 21, "id": null, "risk_text": "", "label_level": "NONE", "label_dept": "CONTROLS"}
+{"source_row": 22, "id": null, "risk_text": "", "label_level": "LOW", "label_dept": "CONTROLS"}
+{"source_row": 23, "id": null, "risk_text": "", "label_level": "NONE", "label_dept": "CONTROLS"}
+{"source_row": 24, "id": null, "risk_text": "", "label_level": "LOW", "label_dept": "CONTROLS"}
+{"source_row": 25, "id": null, "risk_text": "Cannot add two glue heads/gantries due to budget constraints.", "label_level": "LOW", "label_dept": "APPS"}
+{"source_row": 26, "id": null, "risk_text": "", "label_level": "NONE", "label_dept": "APPS"}
+{"source_row": 27, "id": null, "risk_text": "", "label_level": "NONE", "label_dept": "CONTROLS"}
+{"source_row": 28, "id": null, "risk_text": "", "label_level": "NONE", "label_dept": "MECHANICAL"}
+{"source_row": 29, "id": null, "risk_text": "Flange width effects the customer specification of \"No squeeze out\"", "label_level": "LOW", "label_dept": "MECHANICAL"}
+{"source_row": 30, "id": null, "risk_text": "229 engineering hours is aggressive; risk of underestimating meetings and programming.", "label_level": "LOW", "label_dept": "CONTROLS"}

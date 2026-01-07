@@ -4,6 +4,8 @@ class Store {
       active_pane: "train",
       data_loaded: { train: false, classify: false },
       active_bundle_id: null,
+      active_modelset_id: null,
+      active_modelset_version_id: null,
     };
     this.listeners = [];
   }

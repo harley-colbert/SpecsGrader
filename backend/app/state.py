@@ -10,7 +10,18 @@ class AppState:
     data_loaded: Dict[str, bool] = field(
         default_factory=lambda: {"train": False, "classify": False}
     )
+    # Backwards-compat placeholder (older UI called this "bundle").
+    # We keep it, but new code should prefer active_modelset_id.
     active_bundle_id: Optional[str] = None
+
+    # --- ModelSet state ---
+    # A "ModelSet" is a named, versioned bundle of:
+    # - trained model artifacts (workspace_bundle)
+    # - vector store (vector_store)
+    # - rules config (rules.json)
+    # - training telemetry (params/stats/metrics)
+    active_modelset_id: Optional[str] = None
+    active_modelset_version_id: Optional[str] = None
     training_dataset: Optional[Dict[str, object]] = None
     classify_dataset: Optional[Dict[str, object]] = None
     rules_config: Dict[str, object] = field(
@@ -33,8 +44,19 @@ class AppState:
         default_factory=lambda: {
             "status": "idle",
             "progress": 0.0,
+            "phase": None,
+            "message": None,
+            "events": [],
+            "params": None,
+            "stats": None,
+            "started_at": None,
+            "finished_at": None,
+            "last_updated_at": None,
             "metrics": None,
             "error": None,
+            "level_model_path": None,
+            "dept_model_path": None,
+            "bundle_meta_path": None,
         }
     )
     vector_store: Dict[str, object] = field(

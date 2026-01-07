@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict
 from uuid import uuid4
 
-from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -16,6 +16,7 @@ from .services.rule_service import RuleService
 from .services.training_service import TrainingParams, TrainingService
 from .services.vector_service import VectorService
 from .services.llm_service import LLMService
+from .services.modelset_service import ModelSetService
 from .services.aggregate_service import aggregate_outputs
 from .services.job_manager import JobManager
 
@@ -28,7 +29,7 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
 
     settings = get_settings()
-    app = FastAPI(title="SpecsGrader", version="0.0.1")
+    app = FastAPI(title="SpecsGrader", version="4.2.0")
     app_state: AppState = get_state()
 
     frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
@@ -50,6 +51,13 @@ def create_app() -> FastAPI:
     vector_service = VectorService(
         workspace=workspace_dir,
         app_state=app_state,
+    )
+
+    modelset_service = ModelSetService(
+        workspace=workspace_dir,
+        app_state=app_state,
+        rule_service=rule_service,
+        vector_service=vector_service,
     )
     llm_service = LLMService()
     classify_job = JobManager()
@@ -203,9 +211,17 @@ def create_app() -> FastAPI:
     @app.get("/api/train/metrics", response_class=JSONResponse)
     async def training_metrics() -> Dict[str, Any]:
         metrics = training_service.metrics()
-        if metrics is None:
-            raise HTTPException(status_code=404, detail="No training metrics available")
-        return metrics
+        return {"available": metrics is not None, "metrics": metrics}
+
+    @app.get("/favicon.ico")
+    async def favicon() -> Response:
+        """Avoid a noisy 404 in the browser dev console.
+
+        SpecsGrader is a local tool; we don't currently ship a favicon.
+        Returning 204 keeps the browser happy.
+        """
+
+        return Response(status_code=204)
 
     @app.get("/api/settings", response_class=JSONResponse)
     async def get_settings_state() -> Dict[str, Any]:
@@ -239,6 +255,120 @@ def create_app() -> FastAPI:
             "level_conf": result.level_conf,
             "neighbors": result.neighbors,
         }
+
+    # -----------------
+    # ModelSet CRUD + .sgm import/export
+    # -----------------
+
+    @app.get("/api/modelsets", response_class=JSONResponse)
+    async def modelsets_list() -> Dict[str, Any]:
+        items = modelset_service.list_modelsets()
+        return {
+            "modelsets": [
+                {
+                    "modelset_id": ms.modelset_id,
+                    "name": ms.name,
+                    "description": ms.description,
+                    "created_at": ms.created_at,
+                    "updated_at": ms.updated_at,
+                    "latest_version_id": ms.latest_version_id,
+                    "versions": ms.versions,
+                }
+                for ms in items
+            ],
+            "active_modelset_id": app_state.active_modelset_id,
+            "active_modelset_version_id": app_state.active_modelset_version_id,
+        }
+
+    @app.post("/api/modelsets", response_class=JSONResponse)
+    async def modelsets_create(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        name = str(payload.get("name") or "").strip()
+        modelset_id = str(payload.get("modelset_id") or "").strip()
+        description = str(payload.get("description") or "").strip()
+        if not name and not modelset_id:
+            raise HTTPException(status_code=400, detail="name or modelset_id is required")
+        if not modelset_id:
+            # derive a stable-ish id from name
+            modelset_id = "".join([c for c in name.lower().replace(" ", "-") if c.isalnum() or c in {"-", "_"}])
+        try:
+            ms = modelset_service.create_modelset(modelset_id=modelset_id, name=name or modelset_id, description=description)
+        except FileExistsError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {
+            "created": True,
+            "modelset": {
+                "modelset_id": ms.modelset_id,
+                "name": ms.name,
+                "description": ms.description,
+                "created_at": ms.created_at,
+                "updated_at": ms.updated_at,
+                "latest_version_id": ms.latest_version_id,
+                "versions": ms.versions,
+            },
+        }
+
+    @app.delete("/api/modelsets/{modelset_id}", response_class=JSONResponse)
+    async def modelsets_delete(modelset_id: str) -> Dict[str, Any]:
+        try:
+            modelset_service.delete_modelset(modelset_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {"deleted": True, "modelset_id": modelset_id}
+
+    @app.post("/api/modelsets/{modelset_id}/versions", response_class=JSONResponse)
+    async def modelsets_save_version(modelset_id: str, payload: Dict[str, Any] = Body(None)) -> Dict[str, Any]:
+        payload = payload or {}
+        try:
+            meta = modelset_service.save_version(
+                modelset_id=modelset_id,
+                note=str(payload.get("note") or ""),
+                include_bundle=bool(payload.get("include_bundle", True)),
+                include_vector_store=bool(payload.get("include_vector_store", True)),
+                include_rules=bool(payload.get("include_rules", True)),
+                include_training_snapshot=bool(payload.get("include_training_snapshot", True)),
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {"saved": True, "version": meta}
+
+    @app.post("/api/modelsets/{modelset_id}/load", response_class=JSONResponse)
+    async def modelsets_load(modelset_id: str, payload: Dict[str, Any] = Body(None)) -> Dict[str, Any]:
+        payload = payload or {}
+        version_id = payload.get("version_id")
+        try:
+            result = modelset_service.load_version(modelset_id=modelset_id, version_id=version_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return result
+
+    @app.get("/api/modelsets/{modelset_id}/export")
+    async def modelsets_export(modelset_id: str, version_id: str | None = None):
+        try:
+            path = modelset_service.export_sgm(modelset_id=modelset_id, version_id=version_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return FileResponse(
+            path,
+            media_type="application/octet-stream",
+            filename=path.name,
+        )
+
+    @app.post("/api/modelsets/import", response_class=JSONResponse)
+    async def modelsets_import(file: UploadFile = File(...)) -> Dict[str, Any]:
+        try:
+            return await modelset_service.import_sgm(file)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except FileExistsError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/api/llm/test", response_class=JSONResponse)
     async def llm_test(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:

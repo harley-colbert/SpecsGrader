@@ -1,0 +1,61 @@
+{
+  "created_at": "2026-01-07T14:45:48.306368+00:00",
+  "trained_on_rows": 11,
+  "label_distribution": {
+    "level": {
+      "LOW": 5,
+      "MEDIUM": 6
+    },
+    "dept": {
+      "APPS": 2,
+      "CONTROLS": 7,
+      "MECHANICAL": 2
+    }
+  },
+  "metrics": {
+    "level": {
+      "macro_f1": 1.0,
+      "balanced_accuracy": 1.0,
+      "per_class_recall": {
+        "LOW": 1.0,
+        "MEDIUM": 1.0
+      },
+      "confusion_matrix": [
+        [
+          5,
+          0
+        ],
+        [
+          0,
+          6
+        ]
+      ]
+    },
+    "dept": {
+      "macro_f1": 1.0,
+      "balanced_accuracy": 1.0,
+      "per_class_recall": {
+        "APPS": 1.0,
+        "CONTROLS": 1.0,
+        "MECHANICAL": 1.0
+      },
+      "confusion_matrix": [
+        [
+          2,
+          0,
+          0
+        ],
+        [
+          0,
+          7,
+          0
+        ],
+        [
+          0,
+          0,
+          2
+        ]
+      ]
+    }
+  }
+}

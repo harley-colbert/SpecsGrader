@@ -26,6 +26,10 @@ python run.py
   `/api/train/status`, `/api/train/cancel`, and `/api/train/metrics`.
 - Vector: local TF-IDF embeddings and ANN queries via `backend/app/services/vector_service.py`
   with `/api/vector/build` and `/api/vector/test`.
+- ModelSets: versioned, on-disk bundles of (trained model artifacts + vector store + rules)
+  with import/export to a single `.sgm` archive via `backend/app/services/modelset_service.py`.
+  API endpoints: `/api/modelsets`, `/api/modelsets/{id}/versions`, `/api/modelsets/{id}/load`,
+  `/api/modelsets/{id}/export`, and `/api/modelsets/import`.
 - LLM: OpenRouter-backed service with never-send mode in
   `backend/app/services/llm_service.py` and settings via `/api/settings`.
 - Tests: pytest suite under `tests/`.

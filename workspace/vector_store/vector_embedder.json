@@ -1,0 +1,8 @@
+{
+  "model": "tfidf",
+  "max_features": 5000,
+  "ngram_range": [
+    1,
+    2
+  ]
+}

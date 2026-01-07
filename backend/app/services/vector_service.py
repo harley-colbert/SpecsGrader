@@ -23,6 +23,14 @@ class VectorService:
         self.vector_dir = self.workspace / "vector_store"
         self.store: VectorStore | None = None
 
+    def reset_cache(self) -> None:
+        """Drop the in-memory vector store cache.
+
+        This is used when a different vector store is loaded from a ModelSet.
+        """
+
+        self.store = None
+
     def build(self, rows: List[Dict[str, object]]) -> None:
         cfg = EmbedderConfig()
         self.store = VectorStore.build(self.vector_dir, rows, cfg)

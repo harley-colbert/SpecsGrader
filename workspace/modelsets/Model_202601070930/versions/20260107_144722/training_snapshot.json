@@ -1,0 +1,227 @@
+{
+  "captured_at": "2026-01-07T14:47:22.678411+00:00",
+  "training_job": {
+    "status": "completed",
+    "progress": 1.0,
+    "phase": "completed",
+    "message": "Training completed successfully",
+    "events": [
+      {
+        "ts": "2026-01-07T14:45:48.184188+00:00",
+        "level": "info",
+        "message": "Training job created",
+        "data": {
+          "params": {
+            "oversample_enabled": false,
+            "oversample_cap_ratio": 0.3,
+            "min_recall_per_class": 0.5,
+            "calibration_method": "sigmoid"
+          },
+          "stats": {
+            "total_rows": 26,
+            "labeled_rows": 9,
+            "missing_risk_text": 17,
+            "missing_label_level": 0,
+            "missing_label_dept": 0,
+            "label_distribution": {
+              "level": {
+                "MEDIUM": 6,
+                "LOW": 3
+              },
+              "dept": {
+                "CONTROLS": 7,
+                "APPS": 1,
+                "MECHANICAL": 1
+              }
+            }
+          }
+        }
+      },
+      {
+        "ts": "2026-01-07T14:45:48.184188+00:00",
+        "level": "info",
+        "message": "Validating training data",
+        "data": null
+      },
+      {
+        "ts": "2026-01-07T14:45:48.194024+00:00",
+        "level": "info",
+        "message": "Computed initial label distribution",
+        "data": {
+          "level": {
+            "MEDIUM": 6,
+            "LOW": 3
+          },
+          "dept": {
+            "CONTROLS": 7,
+            "APPS": 1,
+            "MECHANICAL": 1
+          }
+        }
+      },
+      {
+        "ts": "2026-01-07T14:45:48.194024+00:00",
+        "level": "info",
+        "message": "Final training distribution prepared",
+        "data": {
+          "level": {
+            "MEDIUM": 6,
+            "LOW": 5
+          },
+          "dept": {
+            "CONTROLS": 7,
+            "APPS": 2,
+            "MECHANICAL": 2
+          }
+        }
+      },
+      {
+        "ts": "2026-01-07T14:45:48.194024+00:00",
+        "level": "info",
+        "message": "Fitting risk level model",
+        "data": null
+      },
+      {
+        "ts": "2026-01-07T14:45:48.239563+00:00",
+        "level": "info",
+        "message": "Fitting department model",
+        "data": null
+      },
+      {
+        "ts": "2026-01-07T14:45:48.268863+00:00",
+        "level": "info",
+        "message": "Evaluating models",
+        "data": null
+      },
+      {
+        "ts": "2026-01-07T14:45:48.293248+00:00",
+        "level": "info",
+        "message": "Metrics computed",
+        "data": null
+      },
+      {
+        "ts": "2026-01-07T14:45:48.293248+00:00",
+        "level": "info",
+        "message": "Saving model artifacts",
+        "data": null
+      },
+      {
+        "ts": "2026-01-07T14:45:48.307932+00:00",
+        "level": "info",
+        "message": "Training completed",
+        "data": {
+          "level_model_path": "C:\\Users\\hcolbert\\hp\\SpecsGrader\\workspace\\workspace_bundle\\level_model.joblib",
+          "dept_model_path": "C:\\Users\\hcolbert\\hp\\SpecsGrader\\workspace\\workspace_bundle\\dept_model.joblib",
+          "bundle_meta_path": "C:\\Users\\hcolbert\\hp\\SpecsGrader\\workspace\\workspace_bundle\\bundle_meta.json"
+        }
+      }
+    ],
+    "params": {
+      "oversample_enabled": false,
+      "oversample_cap_ratio": 0.3,
+      "min_recall_per_class": 0.5,
+      "calibration_method": "sigmoid"
+    },
+    "stats": {
+      "total_rows": 26,
+      "labeled_rows": 9,
+      "missing_risk_text": 17,
+      "missing_label_level": 0,
+      "missing_label_dept": 0,
+      "label_distribution": {
+        "level": {
+          "MEDIUM": 6,
+          "LOW": 3
+        },
+        "dept": {
+          "CONTROLS": 7,
+          "APPS": 1,
+          "MECHANICAL": 1
+        }
+      },
+      "preprocess_distribution": {
+        "level": {
+          "MEDIUM": 6,
+          "LOW": 3
+        },
+        "dept": {
+          "CONTROLS": 7,
+          "APPS": 1,
+          "MECHANICAL": 1
+        }
+      },
+      "training_distribution": {
+        "level": {
+          "MEDIUM": 6,
+          "LOW": 5
+        },
+        "dept": {
+          "CONTROLS": 7,
+          "APPS": 2,
+          "MECHANICAL": 2
+        }
+      },
+      "trained_on_rows": 11
+    },
+    "started_at": "2026-01-07T14:45:48.184188+00:00",
+    "finished_at": "2026-01-07T14:45:48.307932+00:00",
+    "last_updated_at": "2026-01-07T14:45:48.307932+00:00",
+    "metrics": {
+      "level": {
+        "macro_f1": 1.0,
+        "balanced_accuracy": 1.0,
+        "per_class_recall": {
+          "LOW": 1.0,
+          "MEDIUM": 1.0
+        },
+        "confusion_matrix": [
+          [
+            5,
+            0
+          ],
+          [
+            0,
+            6
+          ]
+        ]
+      },
+      "dept": {
+        "macro_f1": 1.0,
+        "balanced_accuracy": 1.0,
+        "per_class_recall": {
+          "APPS": 1.0,
+          "CONTROLS": 1.0,
+          "MECHANICAL": 1.0
+        },
+        "confusion_matrix": [
+          [
+            2,
+            0,
+            0
+          ],
+          [
+            0,
+            7,
+            0
+          ],
+          [
+            0,
+            0,
+            2
+          ]
+        ]
+      }
+    },
+    "error": null,
+    "level_model_path": "C:\\Users\\hcolbert\\hp\\SpecsGrader\\workspace\\modelsets\\Model_202601070930\\versions\\20260107_143216\\bundle\\level_model.joblib",
+    "dept_model_path": "C:\\Users\\hcolbert\\hp\\SpecsGrader\\workspace\\modelsets\\Model_202601070930\\versions\\20260107_143216\\bundle\\dept_model.joblib",
+    "bundle_meta_path": "C:\\Users\\hcolbert\\hp\\SpecsGrader\\workspace\\modelsets\\Model_202601070930\\versions\\20260107_143216\\bundle\\bundle_meta.json"
+  },
+  "training_dataset_summary": {
+    "total_rows": 26,
+    "missing_risk_text": 17,
+    "missing_labels": 0,
+    "invalid_levels": 0,
+    "invalid_departments": 2
+  }
+}

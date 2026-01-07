@@ -1,9 +1,9 @@
 import json
 import threading
 from datetime import datetime, timezone
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import joblib
 import numpy as np
@@ -38,6 +38,83 @@ class TrainingService:
         self._lock = threading.Lock()
         self._cancel_flag = False
         self._thread: Optional[threading.Thread] = None
+
+    @staticmethod
+    def _now_iso() -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    def _log_event(self, message: str, level: str = "info", data: Optional[Dict[str, Any]] = None) -> None:
+        """Append an event to the in-memory training job log.
+
+        Notes:
+        - We keep this in-memory (AppState) intentionally for local usage.
+        - We cap length to avoid unbounded memory growth.
+        """
+
+        with self._lock:
+            events = self.app_state.training_job.get("events")
+            if not isinstance(events, list):
+                events = []
+            events.append(
+                {
+                    "ts": self._now_iso(),
+                    "level": level,
+                    "message": message,
+                    "data": data or None,
+                }
+            )
+            # Keep the most recent 200 events.
+            if len(events) > 200:
+                events = events[-200:]
+            self.app_state.training_job["events"] = events
+            self.app_state.training_job["last_updated_at"] = self._now_iso()
+
+    def _update_job(self, **updates: Any) -> None:
+        with self._lock:
+            self.app_state.training_job.update(updates)
+            self.app_state.training_job["last_updated_at"] = self._now_iso()
+
+    def _check_cancel(self) -> None:
+        if self._cancel_flag:
+            raise RuntimeError("Training canceled")
+
+    @staticmethod
+    def _label_distribution(rows: List[Dict[str, object]], label_key: str) -> Dict[str, int]:
+        counts: Dict[str, int] = {}
+        for r in rows:
+            label = str(r.get(label_key) or "")
+            if not label:
+                continue
+            counts[label] = counts.get(label, 0) + 1
+        return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+
+    def _compute_stats(self, rows: List[Dict[str, object]]) -> Dict[str, Any]:
+        total_rows = len(rows)
+        missing_risk_text = 0
+        missing_level = 0
+        missing_dept = 0
+        labeled_rows: List[Dict[str, object]] = []
+        for r in rows:
+            if not r.get("risk_text"):
+                missing_risk_text += 1
+            if not r.get("label_level"):
+                missing_level += 1
+            if not r.get("label_dept"):
+                missing_dept += 1
+            if r.get("risk_text") and r.get("label_level") and r.get("label_dept"):
+                labeled_rows.append(r)
+
+        return {
+            "total_rows": total_rows,
+            "labeled_rows": len(labeled_rows),
+            "missing_risk_text": missing_risk_text,
+            "missing_label_level": missing_level,
+            "missing_label_dept": missing_dept,
+            "label_distribution": {
+                "level": self._label_distribution(labeled_rows, "label_level"),
+                "dept": self._label_distribution(labeled_rows, "label_dept"),
+            },
+        }
 
     @staticmethod
     def oversample_rows(rows: List[Dict[str, object]], label_key: str, cap_ratio: float) -> List[Dict[str, object]]:
@@ -95,16 +172,46 @@ class TrainingService:
     def _train_task(self, params: TrainingParams) -> None:
         try:
             rows = self.app_state.training_dataset.get("rows", []) if self.app_state.training_dataset else []
+
+            self._update_job(phase="validating_data", message="Validating training data", progress=0.12)
+            self._log_event("Validating training data")
+
             filtered = [r for r in rows if r.get("risk_text") and r.get("label_level") and r.get("label_dept")]
             if not filtered:
                 raise ValueError("No labeled training data loaded")
 
+            pre_dist = {
+                "level": self._label_distribution(filtered, "label_level"),
+                "dept": self._label_distribution(filtered, "label_dept"),
+            }
+            self._update_job(stats={**(self.app_state.training_job.get("stats") or {}), "preprocess_distribution": pre_dist})
+            self._log_event("Computed initial label distribution", data=pre_dist)
+
+            self._check_cancel()
+
             if params.oversample_enabled:
+                self._update_job(phase="oversampling", message="Oversampling minority classes", progress=0.18)
+                self._log_event(
+                    "Oversampling enabled",
+                    data={"cap_ratio": params.oversample_cap_ratio},
+                )
                 filtered = self.oversample_rows(filtered, "label_level", params.oversample_cap_ratio)
                 filtered = self.oversample_rows(filtered, "label_dept", params.oversample_cap_ratio)
 
+            self._check_cancel()
+
+            self._update_job(phase="ensuring_minimums", message="Ensuring minimum examples per class", progress=0.24)
             filtered = self.ensure_minimum_per_class(filtered, "label_level", min_required=2)
             filtered = self.ensure_minimum_per_class(filtered, "label_dept", min_required=2)
+
+            post_dist = {
+                "level": self._label_distribution(filtered, "label_level"),
+                "dept": self._label_distribution(filtered, "label_dept"),
+            }
+            self._update_job(stats={**(self.app_state.training_job.get("stats") or {}), "training_distribution": post_dist, "trained_on_rows": len(filtered)})
+            self._log_event("Final training distribution prepared", data=post_dist)
+
+            self._check_cancel()
 
             texts = [str(r.get("risk_text")) for r in filtered]
             levels = [str(r.get("label_level")) for r in filtered]
@@ -113,19 +220,28 @@ class TrainingService:
             level_pipeline = self._build_pipeline(params.calibration_method)
             dept_pipeline = self._build_pipeline(params.calibration_method)
 
-            with self._lock:
-                self.app_state.training_job.update({"progress": 0.35})
-
+            self._update_job(
+                phase="fit_level_model",
+                message="Training risk level model (TF-IDF + calibrated logistic regression)",
+                progress=0.32,
+            )
+            self._log_event("Fitting risk level model")
             level_pipeline.fit(texts, levels)
-            if self._cancel_flag:
-                raise RuntimeError("Training canceled")
 
-            with self._lock:
-                self.app_state.training_job.update({"progress": 0.65})
+            self._check_cancel()
 
+            self._update_job(
+                phase="fit_dept_model",
+                message="Training department model (TF-IDF + calibrated logistic regression)",
+                progress=0.62,
+            )
+            self._log_event("Fitting department model")
             dept_pipeline.fit(texts, depts)
-            if self._cancel_flag:
-                raise RuntimeError("Training canceled")
+
+            self._check_cancel()
+
+            self._update_job(phase="evaluating", message="Evaluating training set performance", progress=0.78)
+            self._log_event("Evaluating models")
 
             level_preds = level_pipeline.predict(texts)
             dept_preds = dept_pipeline.predict(texts)
@@ -157,6 +273,14 @@ class TrainingService:
                 },
             }
 
+            self._update_job(metrics=metrics)
+            self._log_event("Metrics computed")
+
+            self._check_cancel()
+
+            self._update_job(phase="saving_bundle", message="Saving model bundle to workspace", progress=0.9)
+            self._log_event("Saving model artifacts")
+
             bundle_dir = self.workspace / "workspace_bundle"
             bundle_dir.mkdir(parents=True, exist_ok=True)
             level_path = bundle_dir / "level_model.joblib"
@@ -176,33 +300,68 @@ class TrainingService:
             bundle_meta_path = bundle_dir / "bundle_meta.json"
             bundle_meta_path.write_text(json.dumps(bundle_meta, indent=2), encoding="utf-8")
 
-            with self._lock:
-                self.app_state.training_job.update(
-                    {
-                        "status": "completed",
-                        "progress": 1.0,
-                        "metrics": metrics,
-                        "error": None,
-                        "level_model_path": str(level_path),
-                        "dept_model_path": str(dept_path),
-                        "bundle_meta_path": str(bundle_meta_path),
-                    }
-                )
+            self._update_job(
+                status="completed",
+                phase="completed",
+                message="Training completed successfully",
+                progress=1.0,
+                error=None,
+                finished_at=self._now_iso(),
+                level_model_path=str(level_path),
+                dept_model_path=str(dept_path),
+                bundle_meta_path=str(bundle_meta_path),
+            )
+            self._log_event(
+                "Training completed",
+                data={
+                    "level_model_path": str(level_path),
+                    "dept_model_path": str(dept_path),
+                    "bundle_meta_path": str(bundle_meta_path),
+                },
+            )
         except Exception as exc:  # noqa: BLE001
-            with self._lock:
-                self.app_state.training_job.update(
-                    {
-                        "status": "error" if not self._cancel_flag else "canceled",
-                        "error": None if self._cancel_flag else str(exc),
-                    }
-                )
+            status = "canceled" if self._cancel_flag or "canceled" in str(exc).lower() else "error"
+            self._update_job(
+                status=status,
+                phase="canceled" if status == "canceled" else "error",
+                message="Training canceled" if status == "canceled" else "Training failed",
+                error=None if status == "canceled" else str(exc),
+                finished_at=self._now_iso(),
+            )
+            self._log_event(
+                "Training canceled" if status == "canceled" else "Training failed",
+                level="warning" if status == "canceled" else "error",
+                data={"error": None if status == "canceled" else str(exc), "exception": exc.__class__.__name__},
+            )
 
     def start_training(self, params: TrainingParams) -> None:
         with self._lock:
             if self.app_state.training_job.get("status") == "running":
                 return
-            self.app_state.training_job.update({"status": "running", "progress": 0.1, "error": None})
+            rows = self.app_state.training_dataset.get("rows", []) if self.app_state.training_dataset else []
+            stats = self._compute_stats(rows)
+            self.app_state.training_job.update(
+                {
+                    "status": "running",
+                    "progress": 0.05,
+                    "phase": "starting",
+                    "message": "Starting training job",
+                    "events": [],
+                    "params": asdict(params),
+                    "stats": stats,
+                    "started_at": self._now_iso(),
+                    "finished_at": None,
+                    "metrics": None,
+                    "error": None,
+                    "level_model_path": None,
+                    "dept_model_path": None,
+                    "bundle_meta_path": None,
+                    "last_updated_at": self._now_iso(),
+                }
+            )
             self._cancel_flag = False
+
+        self._log_event("Training job created", data={"params": asdict(params), "stats": stats})
 
         self._thread = threading.Thread(target=self._train_task, args=(params,), daemon=True)
         self._thread.start()
@@ -211,7 +370,12 @@ class TrainingService:
         with self._lock:
             self._cancel_flag = True
             self.app_state.training_job["status"] = "canceled"
+            self.app_state.training_job["phase"] = "canceled"
+            self.app_state.training_job["message"] = "Cancel requested"
             self.app_state.training_job["progress"] = 0.0
+            self.app_state.training_job["finished_at"] = self._now_iso()
+            self.app_state.training_job["last_updated_at"] = self._now_iso()
+        self._log_event("Cancel requested", level="warning")
 
     def status(self) -> Dict[str, object]:
         with self._lock:
