@@ -90,6 +90,17 @@ export async function cancelTraining() {
   return request("/api/train/cancel", { method: "POST" });
 }
 
+export async function runSanityCheck() {
+  return request("/api/train/sanity", { method: "POST" });
+}
+
+export async function runEvaluate(payload = {}) {
+  return request("/api/train/evaluate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function fetchTrainingMetrics() {
   const resp = await request("/api/train/metrics");
   return resp && resp.available ? resp.metrics : null;

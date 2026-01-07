@@ -1,4 +1,5 @@
 import json
+import tempfile
 import threading
 from datetime import datetime, timezone
 from dataclasses import asdict, dataclass
@@ -11,7 +12,13 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import balanced_accuracy_score, confusion_matrix, f1_score, recall_score
+from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
+
+from backend.app.services.rule_service import RuleService
+from backend.app.services.aggregate_service import aggregate_outputs
+from backend.app.vector.vector_store import VectorStore
+from backend.app.vector.embedder import EmbedderConfig
 
 
 @dataclass
@@ -166,6 +173,16 @@ class TrainingService:
             steps=[
                 ("tfidf", TfidfVectorizer(max_features=5000, ngram_range=(1, 2))),
                 ("clf", calibrated),
+            ]
+        )
+
+    @staticmethod
+    def _build_uncalibrated_pipeline() -> Pipeline:
+        base = LogisticRegression(max_iter=1000, class_weight="balanced", n_jobs=1)
+        return Pipeline(
+            steps=[
+                ("tfidf", TfidfVectorizer(max_features=5000, ngram_range=(1, 2))),
+                ("clf", base),
             ]
         )
 
@@ -384,6 +401,209 @@ class TrainingService:
     def metrics(self) -> Optional[Dict[str, object]]:
         with self._lock:
             return self.app_state.training_job.get("metrics")
+
+    def labeled_rows(self) -> List[Dict[str, object]]:
+        rows = self.app_state.training_dataset.get("rows", []) if self.app_state.training_dataset else []
+        return [
+            r
+            for r in rows
+            if r.get("risk_text") and r.get("label_level") and r.get("label_dept")
+        ]
+
+    @staticmethod
+    def _compute_basic_metrics(expected: List[str], predicted: List[str]) -> Dict[str, float]:
+        if not expected or not predicted:
+            return {"accuracy": 0.0, "macro_f1": 0.0}
+        accuracy = sum(exp == pred for exp, pred in zip(expected, predicted)) / len(expected)
+        return {
+            "accuracy": float(accuracy),
+            "macro_f1": float(f1_score(expected, predicted, average="macro")),
+        }
+
+    def evaluate(
+        self,
+        rules: RuleService,
+        vector_k_values: List[int] | None = None,
+        test_size: float = 0.2,
+        random_state: int = 42,
+    ) -> Dict[str, object]:
+        rows = self.labeled_rows()
+        if not rows:
+            return {"available": False, "n_rows": 0}
+
+        vector_k_values = vector_k_values or [1]
+        labels = [str(r.get("label_level")) for r in rows]
+        warnings: List[str] = []
+        stratify = labels if len(set(labels)) > 1 else None
+        if len(rows) * test_size < 1:
+            test_size = min(0.5, max(test_size, 1 / len(rows)))
+
+        if len(rows) < 4:
+            train_rows = list(rows)
+            test_rows = list(rows)
+            strategy = "full_fit"
+            warnings.append("Dataset too small for holdout split; evaluated on full data.")
+        else:
+            try:
+                train_rows, test_rows = train_test_split(
+                    rows,
+                    test_size=test_size,
+                    random_state=random_state,
+                    stratify=stratify,
+                )
+                strategy = "stratified_split" if stratify else "random_split"
+            except ValueError:
+                train_rows, test_rows = train_test_split(
+                    rows,
+                    test_size=test_size,
+                    random_state=random_state,
+                    stratify=None,
+                )
+                strategy = "random_split"
+                warnings.append("Stratified split unavailable; used random split.")
+
+        train_texts = [str(r.get("risk_text")) for r in train_rows]
+        train_levels = [str(r.get("label_level")) for r in train_rows]
+        train_depts = [str(r.get("label_dept")) for r in train_rows]
+
+        test_texts = [str(r.get("risk_text")) for r in test_rows]
+        expected_levels = [str(r.get("label_level")) for r in test_rows]
+        expected_depts = [str(r.get("label_dept")) for r in test_rows]
+
+        if len(set(train_levels)) < 2 or len(set(train_depts)) < 2:
+            return {
+                "available": False,
+                "n_rows": len(rows),
+                "error": "Need at least two classes per label to evaluate.",
+            }
+
+        min_level_count = min([train_levels.count(label) for label in set(train_levels)])
+        min_dept_count = min([train_depts.count(label) for label in set(train_depts)])
+        if min_level_count < 2 or min_dept_count < 2:
+            warnings.append("Too few samples per class for calibration; used uncalibrated model.")
+            level_pipeline = self._build_uncalibrated_pipeline()
+            dept_pipeline = self._build_uncalibrated_pipeline()
+        else:
+            level_pipeline = self._build_pipeline("sigmoid")
+            dept_pipeline = self._build_pipeline("sigmoid")
+        level_pipeline.fit(train_texts, train_levels)
+        dept_pipeline.fit(train_texts, train_depts)
+
+        model_level_preds = [str(p) for p in level_pipeline.predict(test_texts)]
+        model_dept_preds = [str(p) for p in dept_pipeline.predict(test_texts)]
+
+        model_metrics = {
+            "level": self._compute_basic_metrics(expected_levels, model_level_preds),
+            "dept": self._compute_basic_metrics(expected_depts, model_dept_preds),
+        }
+
+        rules_dept_preds = []
+        rules_level_preds = []
+        rules_abstain = 0
+        for text in test_texts:
+            pred = rules.predict(text)
+            dept_pred = pred.dept_pred or "None"
+            rules_dept_preds.append(dept_pred)
+            rules_level_preds.append("None")
+            if pred.dept_pred is None:
+                rules_abstain += 1
+        rules_metrics = {
+            "level": self._compute_basic_metrics(expected_levels, rules_level_preds),
+            "dept": self._compute_basic_metrics(expected_depts, rules_dept_preds),
+            "abstain_rate": rules_abstain / len(test_texts),
+        }
+
+        vector_metrics: Dict[str, object] = {}
+        vector_predictions: Dict[int, Dict[str, List[str]]] = {}
+        for k in vector_k_values:
+            with tempfile.TemporaryDirectory(prefix="specsgrader_vector_eval_") as td:
+                store = VectorStore.build(Path(td), train_rows, EmbedderConfig(), k=k)
+                vector_dept_preds = []
+                vector_level_preds = []
+                for text in test_texts:
+                    neighbors = store.query(text, k=k)
+                    dept_counts: Dict[str, int] = {}
+                    level_counts: Dict[str, int] = {}
+                    for n in neighbors:
+                        row = n["row"]
+                        dept = row.get("label_dept")
+                        level = row.get("label_level")
+                        if dept:
+                            dept_counts[dept] = dept_counts.get(dept, 0) + 1
+                        if level:
+                            level_counts[level] = level_counts.get(level, 0) + 1
+                    dept_pred = max(dept_counts, key=dept_counts.get) if dept_counts else "None"
+                    level_pred = max(level_counts, key=level_counts.get) if level_counts else "None"
+                    vector_dept_preds.append(str(dept_pred))
+                    vector_level_preds.append(str(level_pred))
+                vector_predictions[k] = {
+                    "dept": vector_dept_preds,
+                    "level": vector_level_preds,
+                }
+                vector_metrics[f"k_{k}"] = {
+                    "level": self._compute_basic_metrics(expected_levels, vector_level_preds),
+                    "dept": self._compute_basic_metrics(expected_depts, vector_dept_preds),
+                }
+
+        ensemble_level_preds = []
+        ensemble_dept_preds = []
+        for idx, text in enumerate(test_texts):
+            method_outputs = {
+                "model": {
+                    "level_pred": model_level_preds[idx],
+                    "level_conf": 1.0,
+                    "dept_pred": model_dept_preds[idx],
+                    "dept_conf": 1.0,
+                },
+                "rules": {
+                    "level_pred": None,
+                    "level_conf": 0.0,
+                    "dept_pred": rules_dept_preds[idx] if rules_dept_preds[idx] != "None" else None,
+                    "dept_conf": 1.0 if rules_dept_preds[idx] != "None" else 0.0,
+                },
+            }
+            vector_pred = vector_predictions.get(vector_k_values[0])
+            if vector_pred:
+                method_outputs["vector"] = {
+                    "level_pred": vector_pred["level"][idx],
+                    "level_conf": 1.0,
+                    "dept_pred": vector_pred["dept"][idx],
+                    "dept_conf": 1.0,
+                    "top_similarity": 1.0,
+                    "margin": 1.0,
+                }
+            aggregated = aggregate_outputs(method_outputs)
+            ensemble_level_preds.append(str(aggregated["pred_level"] or "None"))
+            ensemble_dept_preds.append(str(aggregated["pred_dept"] or "None"))
+
+        ensemble_metrics = {
+            "level": self._compute_basic_metrics(expected_levels, ensemble_level_preds),
+            "dept": self._compute_basic_metrics(expected_depts, ensemble_dept_preds),
+        }
+
+        bundle_dir = self.workspace / "workspace_bundle"
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+        level_path = bundle_dir / "level_model.joblib"
+        dept_path = bundle_dir / "dept_model.joblib"
+        joblib.dump(level_pipeline, level_path)
+        joblib.dump(dept_pipeline, dept_path)
+
+        with self._lock:
+            self.app_state.training_job["level_model_path"] = str(level_path)
+            self.app_state.training_job["dept_model_path"] = str(dept_path)
+
+        return {
+            "available": True,
+            "n_rows": len(rows),
+            "strategy": strategy,
+            "warnings": warnings,
+            "metrics": {
+                "model": model_metrics,
+                "rules": rules_metrics,
+                "vector": vector_metrics,
+                "ensemble": ensemble_metrics,
+            },
+        }
 
 
 __all__ = ["TrainingService", "TrainingParams", "TrainingResult"]

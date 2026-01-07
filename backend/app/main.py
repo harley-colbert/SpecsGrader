@@ -8,6 +8,7 @@ from uuid import uuid4
 from fastapi import Body, FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sklearn.metrics import confusion_matrix
 
 from .settings import get_settings
 from .state import AppState, get_state
@@ -17,6 +18,7 @@ from .services.training_service import TrainingParams, TrainingService
 from .services.vector_service import VectorService
 from .services.llm_service import LLMService
 from .services.modelset_service import ModelSetService
+from .services.model_inference_service import ModelInferenceService
 from .services.aggregate_service import aggregate_outputs
 from .services.job_manager import JobManager
 
@@ -29,7 +31,7 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
 
     settings = get_settings()
-    app = FastAPI(title="SpecsGrader", version="4.3.0")
+    app = FastAPI(title="SpecsGrader", version="4.4.0")
     app_state: AppState = get_state()
 
     frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
@@ -52,6 +54,10 @@ def create_app() -> FastAPI:
         workspace=workspace_dir,
         app_state=app_state,
     )
+    model_inference_service = ModelInferenceService(
+        workspace=workspace_dir,
+        app_state=app_state,
+    )
 
     modelset_service = ModelSetService(
         workspace=workspace_dir,
@@ -65,7 +71,15 @@ def create_app() -> FastAPI:
 
     @app.get("/api/state", response_class=JSONResponse)
     async def read_state() -> Dict[str, Any]:
-        return asdict(app_state)
+        state = asdict(app_state)
+        state["capabilities"] = {
+            "model": model_inference_service.available(),
+            "vector": bool(app_state.vector_store.get("built")),
+            "rules": bool(app_state.rules_config),
+            "llm": not app_state.never_send_externally,
+        }
+        state["default_mode"] = "production"
+        return state
 
     @app.post("/api/ui/set_active_pane", response_class=JSONResponse)
     async def set_active_pane(payload: Dict[str, str] = Body(...)) -> Dict[str, Any]:
@@ -214,6 +228,89 @@ def create_app() -> FastAPI:
         metrics = training_service.metrics()
         return {"available": metrics is not None, "metrics": metrics}
 
+    @app.post("/api/train/sanity", response_class=JSONResponse)
+    async def training_sanity() -> Dict[str, Any]:
+        rows = training_service.labeled_rows()
+        if not rows or not model_inference_service.available():
+            report = {"available": False, "n_rows": len(rows)}
+            app_state.sanity_report = report
+            return report
+
+        expected_levels: list[str] = []
+        expected_depts: list[str] = []
+        predicted_levels: list[str] = []
+        predicted_depts: list[str] = []
+        results: list[Dict[str, Any]] = []
+
+        for idx, row in enumerate(rows):
+            text = str(row.get("risk_text") or "")
+            expected_level = str(row.get("label_level") or "")
+            expected_dept = str(row.get("label_dept") or "")
+            pred = model_inference_service.predict(text)
+            pred_level = pred.level_pred
+            pred_dept = pred.dept_pred
+
+            expected_levels.append(expected_level)
+            expected_depts.append(expected_dept)
+            predicted_levels.append(str(pred_level) if pred_level else "None")
+            predicted_depts.append(str(pred_dept) if pred_dept else "None")
+
+            match_level = pred_level == expected_level
+            match_dept = pred_dept == expected_dept
+            results.append(
+                {
+                    "row_id": row.get("source_row") or idx,
+                    "risk_text": text,
+                    "expected_level": expected_level,
+                    "pred_level": pred_level,
+                    "conf_level": pred.level_conf,
+                    "expected_dept": expected_dept,
+                    "pred_dept": pred_dept,
+                    "conf_dept": pred.dept_conf,
+                    "match_level": match_level,
+                    "match_dept": match_dept,
+                }
+            )
+
+        n_rows = len(results)
+        accuracy_level = sum(r["match_level"] for r in results) / n_rows if n_rows else 0.0
+        accuracy_dept = sum(r["match_dept"] for r in results) / n_rows if n_rows else 0.0
+
+        level_labels = sorted(set(expected_levels) | set(predicted_levels))
+        dept_labels = sorted(set(expected_depts) | set(predicted_depts))
+        confusion_level = confusion_matrix(expected_levels, predicted_levels, labels=level_labels).tolist()
+        confusion_dept = confusion_matrix(expected_depts, predicted_depts, labels=dept_labels).tolist()
+
+        report = {
+            "available": True,
+            "n_rows": n_rows,
+            "accuracy_level": accuracy_level,
+            "accuracy_dept": accuracy_dept,
+            "rows": results,
+            "confusion": {
+                "level": {"labels": level_labels, "matrix": confusion_level},
+                "dept": {"labels": dept_labels, "matrix": confusion_dept},
+            },
+        }
+        app_state.sanity_report = report
+        return report
+
+    @app.post("/api/train/evaluate", response_class=JSONResponse)
+    async def training_evaluate(payload: Dict[str, Any] = Body(None)) -> Dict[str, Any]:
+        payload = payload or {}
+        vector_k_values = payload.get("vector_k_values") or [1]
+        test_size = float(payload.get("test_size", 0.2))
+        random_state = int(payload.get("random_state", 42))
+
+        report = training_service.evaluate(
+            rules=rule_service,
+            vector_k_values=vector_k_values,
+            test_size=test_size,
+            random_state=random_state,
+        )
+        app_state.evaluation_report = report
+        return report
+
     @app.get("/favicon.ico")
     async def favicon() -> Response:
         """Avoid a noisy 404 in the browser dev console.
@@ -259,6 +356,10 @@ def create_app() -> FastAPI:
             "dept_conf": result.dept_conf,
             "level_pred": result.level_pred,
             "level_conf": result.level_conf,
+            "top_similarity": result.top_similarity,
+            "second_similarity": result.second_similarity,
+            "margin": result.margin,
+            "top_neighbors": result.top_neighbors,
             "neighbors": result.neighbors,
         }
 
@@ -453,10 +554,23 @@ def create_app() -> FastAPI:
     @app.post("/api/classify/start", response_class=JSONResponse)
     async def classify_start(payload: Dict[str, Any] = Body(None)) -> Dict[str, Any]:
         thresholds = payload.get("thresholds", {}) if payload else {}
+        mode = (payload.get("mode") if payload else None) or "production"
+        if mode not in {"sanity", "evaluate", "production"}:
+            raise HTTPException(status_code=400, detail="Invalid mode")
+
+        policy = payload.get("policy") if payload else None
+        if not isinstance(policy, dict):
+            policy = dict(app_state.production_policy)
+
+        default_enabled = {
+            "sanity": {"model": True, "rules": False, "vector": False, "llm": False},
+            "evaluate": {"model": True, "rules": True, "vector": True, "llm": True},
+            "production": {"model": True, "rules": True, "vector": True, "llm": True},
+        }
         enabled = (
-            payload.get("enabled_methods", {"rules": True, "vector": True, "llm": True})
+            payload.get("enabled_methods", default_enabled[mode])
             if payload
-            else {"rules": True, "vector": True, "llm": True}
+            else default_enabled[mode]
         )
 
         if app_state.classify_dataset is None:
@@ -475,6 +589,9 @@ def create_app() -> FastAPI:
                     "dept_conf": rules_pred.dept_conf,
                     "level_pred": None,
                     "level_conf": 0.0,
+                    "matched": rules_pred.matched,
+                    "hard_hits": rules_pred.hard_hits,
+                    "hard": rules_pred.is_hard,
                 }
             if enabled.get("vector") and app_state.vector_store.get("built"):
                 try:
@@ -484,6 +601,10 @@ def create_app() -> FastAPI:
                         "dept_conf": vector_pred.dept_conf,
                         "level_pred": vector_pred.level_pred,
                         "level_conf": vector_pred.level_conf,
+                        "top_similarity": vector_pred.top_similarity,
+                        "second_similarity": vector_pred.second_similarity,
+                        "margin": vector_pred.margin,
+                        "neighbors": vector_pred.top_neighbors,
                     }
                 except Exception:
                     method_outputs["vector"] = None
@@ -499,11 +620,22 @@ def create_app() -> FastAPI:
                         "dept_conf": float(llm_pred.confidence or 0.5),
                         "level_pred": llm_pred.risk_level,
                         "level_conf": float(llm_pred.confidence or 0.5),
+                        "reason": llm_pred.reason,
                     }
                 except Exception:
                     method_outputs["llm"] = None
 
-            aggregated = aggregate_outputs(method_outputs)
+            if enabled.get("model"):
+                model_pred = model_inference_service.predict(text)
+                if model_pred.available:
+                    method_outputs["model"] = {
+                        "dept_pred": model_pred.dept_pred,
+                        "dept_conf": model_pred.dept_conf,
+                        "level_pred": model_pred.level_pred,
+                        "level_conf": model_pred.level_conf,
+                    }
+
+            aggregated = aggregate_outputs(method_outputs, mode=mode, thresholds=policy)
             level_threshold = float(thresholds.get("level", 0.0))
             dept_threshold = float(thresholds.get("dept", 0.0))
             below_threshold = aggregated["conf_level"] < level_threshold or aggregated["conf_dept"] < dept_threshold
@@ -515,6 +647,7 @@ def create_app() -> FastAPI:
                 "conf_level": aggregated["conf_level"],
                 "conf_dept": aggregated["conf_dept"],
                 "methods_used": json.dumps(method_outputs),
+                "trace": json.dumps(aggregated.get("trace", {})),
                 "below_threshold": below_threshold,
                 "user_override_level": None,
                 "user_override_dept": None,

@@ -8,6 +8,8 @@ import {
   startTraining,
   fetchTrainingStatus,
   cancelTraining,
+  runSanityCheck,
+  runEvaluate,
   buildVectorStore,
   listModelSets,
   createModelSet,
@@ -33,6 +35,10 @@ let trainingStatus = null;
 let trainingMetrics = null;
 let vectorBuildStatus = null;
 let trainingPollTimer = null;
+let sanityReport = null;
+let sanityLoading = false;
+let evaluationReport = null;
+let evaluationLoading = false;
 
 let modelsets = [];
 let modelsetsLoading = false;
@@ -434,6 +440,32 @@ function render(state) {
       ${trainingMetrics ? renderMetrics(trainingMetrics) : ""}
     </div>
     <div class="card">
+      <h3>Sanity check (model-only)</h3>
+      <p>Validate the trained model against labeled training rows.</p>
+      <div class="rule-actions">
+        <button id="sanity-run" ${sanityLoading ? "disabled" : ""}>
+          ${sanityLoading ? "Running..." : "Run sanity check"}
+        </button>
+        ${sanityReport
+          ? `<span class="chip chip-muted">Rows: ${sanityReport.n_rows ?? 0}</span>`
+          : ""}
+      </div>
+      ${sanityReport ? renderSanityReport(sanityReport) : `<p class="muted">No sanity report yet.</p>`}
+    </div>
+    <div class="card">
+      <h3>Evaluate (holdout metrics)</h3>
+      <p>Measure model/rules/vector/ensemble metrics on a holdout split.</p>
+      <div class="rule-actions">
+        <button id="evaluate-run" ${evaluationLoading ? "disabled" : ""}>
+          ${evaluationLoading ? "Running..." : "Run evaluation"}
+        </button>
+        ${evaluationReport
+          ? `<span class="chip chip-muted">Rows: ${evaluationReport.n_rows ?? 0}</span>`
+          : ""}
+      </div>
+      ${evaluationReport ? renderEvaluateReport(evaluationReport) : `<p class="muted">No evaluation report yet.</p>`}
+    </div>
+    <div class="card">
       <h3>Vector store</h3>
       <p>Build embeddings and ANN index for vector-based predictions.</p>
       <div class="rule-actions">
@@ -494,6 +526,8 @@ function render(state) {
   const startBtn = rootEl.querySelector("#train-start");
   const cancelBtn = rootEl.querySelector("#train-cancel");
   const vectorBtn = rootEl.querySelector("#vector-build");
+  const sanityBtn = rootEl.querySelector("#sanity-run");
+  const evaluateBtn = rootEl.querySelector("#evaluate-run");
 
   const syncParams = () => {
     trainingParams.oversample_enabled = oversampleCheckbox?.checked || false;
@@ -541,6 +575,36 @@ function render(state) {
         render(state);
       } catch (error) {
         alert(error.message);
+      }
+    });
+  }
+
+  if (sanityBtn) {
+    sanityBtn.addEventListener("click", async () => {
+      sanityLoading = true;
+      render(state);
+      try {
+        sanityReport = await runSanityCheck();
+      } catch (error) {
+        alert(error.message);
+      } finally {
+        sanityLoading = false;
+        render(state);
+      }
+    });
+  }
+
+  if (evaluateBtn) {
+    evaluateBtn.addEventListener("click", async () => {
+      evaluationLoading = true;
+      render(state);
+      try {
+        evaluationReport = await runEvaluate();
+      } catch (error) {
+        alert(error.message);
+      } finally {
+        evaluationLoading = false;
+        render(state);
       }
     });
   }
@@ -929,6 +993,92 @@ function renderMetrics(metrics) {
   `;
 }
 
+function renderSanityReport(report) {
+  if (!report.available) {
+    return `<p class="muted">Sanity report unavailable. Train a model and load labeled data.</p>`;
+  }
+  const accuracyLevel = Number(report.accuracy_level || 0).toFixed(2);
+  const accuracyDept = Number(report.accuracy_dept || 0).toFixed(2);
+  const mismatches = Array.isArray(report.rows)
+    ? report.rows.filter((row) => !row.match_level || !row.match_dept)
+    : [];
+  return `
+    <div class="metrics">
+      <div>
+        <h4>Accuracy</h4>
+        <p>Level: ${accuracyLevel} | Department: ${accuracyDept}</p>
+      </div>
+      <div>
+        <h4>Mismatches</h4>
+        <p>${mismatches.length} row(s)</p>
+      </div>
+    </div>
+    ${mismatches.length ? renderSanityRows(mismatches) : `<p class="muted">No mismatches detected.</p>`}
+  `;
+}
+
+function renderSanityRows(rows) {
+  const header = `
+    <div class="table-header">
+      <span>Row</span>
+      <span>Text</span>
+      <span>Expected level</span>
+      <span>Pred level</span>
+      <span>Expected dept</span>
+      <span>Pred dept</span>
+    </div>`;
+  const body = rows
+    .map(
+      (row) => `
+        <div class="table-row">
+          <span>${row.row_id}</span>
+          <span>${row.risk_text || ""}</span>
+          <span>${row.expected_level || ""}</span>
+          <span>${row.pred_level || ""}</span>
+          <span>${row.expected_dept || ""}</span>
+          <span>${row.pred_dept || ""}</span>
+        </div>`
+    )
+    .join("");
+  return `<div class="table-placeholder">${header}${body}</div>`;
+}
+
+function renderEvaluateReport(report) {
+  if (!report.available) {
+    const error = report.error ? `<div class="muted">${report.error}</div>` : "";
+    return `<p class="muted">Evaluation unavailable. Train a model and load labeled data.</p>${error}`;
+  }
+  const warnings = Array.isArray(report.warnings) && report.warnings.length
+    ? `<ul class="event-log">${report.warnings.map((w) => `<li>${w}</li>`).join("")}</ul>`
+    : "";
+  const metrics = report.metrics || {};
+  return `
+    <div class="metrics">
+      ${renderMetricBlock("Model", metrics.model)}
+      ${renderMetricBlock("Rules", metrics.rules)}
+      ${renderMetricBlock("Vector (k=1)", metrics.vector?.k_1)}
+      ${renderMetricBlock("Ensemble", metrics.ensemble)}
+    </div>
+    ${warnings}
+  `;
+}
+
+function renderMetricBlock(title, metrics) {
+  if (!metrics) {
+    return `<div><h4>${title}</h4><p class="muted">No data</p></div>`;
+  }
+  const level = metrics.level || {};
+  const dept = metrics.dept || {};
+  const levelAcc = Number(level.accuracy || 0).toFixed(2);
+  const deptAcc = Number(dept.accuracy || 0).toFixed(2);
+  return `
+    <div>
+      <h4>${title}</h4>
+      <p>Level acc: ${levelAcc} | Dept acc: ${deptAcc}</p>
+    </div>
+  `;
+}
+
 export default {
   async mount(containerEl, ctx = {}) {
     storeRef = ctx.store || null;
@@ -984,5 +1134,9 @@ export default {
     trainingStatus = null;
     trainingMetrics = null;
     vectorBuildStatus = null;
+    sanityReport = null;
+    sanityLoading = false;
+    evaluationReport = null;
+    evaluationLoading = false;
   },
 };

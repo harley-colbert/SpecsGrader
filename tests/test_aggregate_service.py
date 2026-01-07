@@ -7,7 +7,7 @@ def test_vector_priority_over_llm_and_rules():
         "llm": {"dept_pred": "electrical", "dept_conf": 0.9, "level_pred": "medium", "level_conf": 0.9},
         "rules": {"dept_pred": "controls", "dept_conf": 1.0, "level_pred": None, "level_conf": 0.0},
     }
-    agg = aggregate_outputs(outputs, DEFAULT_WEIGHTS)
+    agg = aggregate_outputs(outputs, DEFAULT_WEIGHTS, mode="evaluate")
     assert agg["pred_dept"] == "mechanical"
     assert agg["pred_level"] == "high"
 

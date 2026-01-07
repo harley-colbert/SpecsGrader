@@ -10,13 +10,14 @@ function renderContent() {
       <span>Predicted level</span>
       <span>Department</span>
       <span>Confidence</span>
+      <span>Why</span>
     </div>`;
 
   if (!results || !results.rows || !results.rows.length) {
     return `
       <h2>Results</h2>
       <p>Results will appear here after a classify job runs.</p>
-      <div class="table-placeholder">
+      <div class="table-placeholder table-5">
         ${header}
         <div class="table-row muted">No results yet</div>
       </div>
@@ -26,12 +27,23 @@ function renderContent() {
   const body = results.rows
     .map((row) => {
       const conf = Math.max(Number(row.conf_level || 0), Number(row.conf_dept || 0));
+      let trace = null;
+      try {
+        trace = row.trace ? JSON.parse(row.trace) : null;
+      } catch (_) {
+        trace = null;
+      }
+      const winner = trace?.winner ? `Winner: ${trace.winner}` : "Winner: n/a";
+      const steps = Array.isArray(trace?.steps)
+        ? trace.steps.filter((step) => step.selected).map((step) => step.step).join(", ")
+        : "";
       return `
         <div class="table-row">
           <span>${row.risk_text || ""}</span>
           <span>${row.pred_level ?? ""}</span>
           <span>${row.pred_dept ?? ""}</span>
           <span>${conf.toFixed(2)}</span>
+          <span>${winner}${steps ? `<br/><small class="muted">${steps}</small>` : ""}</span>
         </div>`;
     })
     .join("");
@@ -39,7 +51,7 @@ function renderContent() {
   return `
     <h2>Results</h2>
     <p>Aggregated predictions from enabled methods.</p>
-    <div class="table-placeholder">
+    <div class="table-placeholder table-5">
       ${header}
       ${body}
     </div>

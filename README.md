@@ -1,6 +1,6 @@
 # SpecsGrader
 
-This repository follows the SpecsGrader plan V4.3. Run the application from the
+This repository follows the SpecsGrader plan V4.4. Run the application from the
 project root; it serves the backend and frontend on the same port and opens a
 PyWebView window to the local URL. The UI currently exposes a three-pane shell
 (Train, Classify, Results) driven by backend state.
@@ -23,7 +23,8 @@ python run.py
   `/api/rules/get`, `/api/rules/set`, and `/api/rules/test`.
 - Training: TF-IDF + calibrated logistic regression implemented in
   `backend/app/services/training_service.py` with `/api/train/start`,
-  `/api/train/status`, `/api/train/cancel`, and `/api/train/metrics`.
+  `/api/train/status`, `/api/train/cancel`, `/api/train/metrics`,
+  `/api/train/sanity`, and `/api/train/evaluate`.
 - Vector: local TF-IDF embeddings and ANN queries via `backend/app/services/vector_service.py`
   with `/api/vector/build`, `/api/vector/test`, and `/api/vector/status`.
 - ModelSets: versioned, on-disk bundles of (trained model artifacts + vector store + rules)
@@ -34,6 +35,10 @@ python run.py
 - LLM: OpenRouter-backed service with never-send mode in
   `backend/app/services/llm_service.py` and settings via `/api/settings`.
 - Tests: pytest suite under `tests/`.
+- Modes:
+  - Sanity (model-only, quick training check)
+  - Evaluate (holdout metrics per method)
+  - Production (decision ladder with trace output)
 
 Run tests with:
 
