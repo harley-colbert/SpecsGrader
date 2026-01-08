@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 import threading
@@ -12,7 +13,7 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import balanced_accuracy_score, confusion_matrix, f1_score, precision_score, recall_score
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.pipeline import Pipeline
 
 from backend.app.services.rule_service import RuleService
@@ -29,6 +30,8 @@ class TrainingParams:
     oversample_cap_ratio: float = 0.3
     min_recall_per_class: float = 0.5
     calibration_method: str = "sigmoid"
+    cv_folds: int = 5
+    use_class_weight_balanced: bool = True
 
 
 @dataclass
@@ -182,6 +185,18 @@ class TrainingService:
             "blocking_errors": blocking_errors,
         }
 
+    @staticmethod
+    def _dataset_snapshot_hash(rows: List[Dict[str, object]]) -> str:
+        if not rows:
+            return ""
+        payload = json.dumps(rows, sort_keys=True).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
+
+    def _artifact_inventory(self, bundle_dir: Path) -> List[str]:
+        if not bundle_dir.exists():
+            return []
+        return [p.name for p in sorted(bundle_dir.iterdir()) if p.is_file()]
+
     def dataset_health(self) -> Dict[str, Any]:
         rows = self.app_state.training_dataset.get("rows", []) if self.app_state.training_dataset else []
         stats = self._compute_stats(rows)
@@ -232,8 +247,9 @@ class TrainingService:
         return augmented
 
     @staticmethod
-    def _build_pipeline(calibration_method: str) -> Pipeline:
-        base = LogisticRegression(max_iter=1000, class_weight="balanced", n_jobs=1)
+    def _build_pipeline(calibration_method: str, use_class_weight_balanced: bool) -> Pipeline:
+        class_weight = "balanced" if use_class_weight_balanced else None
+        base = LogisticRegression(max_iter=1000, class_weight=class_weight, n_jobs=1)
         calibrated = CalibratedClassifierCV(estimator=base, method=calibration_method, cv=2)
         return Pipeline(
             steps=[
@@ -243,14 +259,122 @@ class TrainingService:
         )
 
     @staticmethod
-    def _build_uncalibrated_pipeline() -> Pipeline:
-        base = LogisticRegression(max_iter=1000, class_weight="balanced", n_jobs=1)
+    def _build_uncalibrated_pipeline(use_class_weight_balanced: bool) -> Pipeline:
+        class_weight = "balanced" if use_class_weight_balanced else None
+        base = LogisticRegression(max_iter=1000, class_weight=class_weight, n_jobs=1)
         return Pipeline(
             steps=[
                 ("tfidf", TfidfVectorizer(max_features=5000, ngram_range=(1, 2))),
                 ("clf", base),
             ]
         )
+
+    @staticmethod
+    def _compute_detailed_metrics(expected: List[str], predicted: List[str]) -> Dict[str, object]:
+        if not expected or not predicted:
+            return {
+                "macro_f1": 0.0,
+                "weighted_f1": 0.0,
+                "balanced_accuracy": 0.0,
+                "labels": [],
+                "per_class_precision": {},
+                "per_class_recall": {},
+                "per_class_f1": {},
+                "confusion_matrix": [],
+            }
+        labels = sorted(set(expected) | set(predicted))
+        precision = precision_score(expected, predicted, average=None, labels=labels, zero_division=0)
+        recall = recall_score(expected, predicted, average=None, labels=labels, zero_division=0)
+        f1 = f1_score(expected, predicted, average=None, labels=labels, zero_division=0)
+        return {
+            "macro_f1": float(f1_score(expected, predicted, average="macro", zero_division=0)),
+            "weighted_f1": float(f1_score(expected, predicted, average="weighted", zero_division=0)),
+            "balanced_accuracy": float(balanced_accuracy_score(expected, predicted)),
+            "labels": labels,
+            "per_class_precision": {label: float(value) for label, value in zip(labels, precision)},
+            "per_class_recall": {label: float(value) for label, value in zip(labels, recall)},
+            "per_class_f1": {label: float(value) for label, value in zip(labels, f1)},
+            "confusion_matrix": confusion_matrix(expected, predicted, labels=labels).tolist(),
+        }
+
+    def _summarize_cv_metrics(
+        self, fold_metrics: List[Dict[str, object]], labels: List[str]
+    ) -> Dict[str, object]:
+        if not fold_metrics:
+            return {"averages": {}, "folds": [], "labels": labels, "confusion_matrix": []}
+        averages = {
+            "macro_f1": float(np.mean([fold["macro_f1"] for fold in fold_metrics])),
+            "weighted_f1": float(np.mean([fold["weighted_f1"] for fold in fold_metrics])),
+            "balanced_accuracy": float(np.mean([fold["balanced_accuracy"] for fold in fold_metrics])),
+        }
+        per_class_precision = {label: [] for label in labels}
+        per_class_recall = {label: [] for label in labels}
+        per_class_f1 = {label: [] for label in labels}
+        confusion = np.zeros((len(labels), len(labels)), dtype=float)
+        for fold in fold_metrics:
+            for label in labels:
+                per_class_precision[label].append(float(fold["per_class_precision"].get(label, 0.0)))
+                per_class_recall[label].append(float(fold["per_class_recall"].get(label, 0.0)))
+                per_class_f1[label].append(float(fold["per_class_f1"].get(label, 0.0)))
+            confusion += np.array(fold.get("confusion_matrix") or np.zeros_like(confusion), dtype=float)
+        return {
+            "averages": averages,
+            "folds": fold_metrics,
+            "labels": labels,
+            "per_class_precision": {label: float(np.mean(values)) for label, values in per_class_precision.items()},
+            "per_class_recall": {label: float(np.mean(values)) for label, values in per_class_recall.items()},
+            "per_class_f1": {label: float(np.mean(values)) for label, values in per_class_f1.items()},
+            "confusion_matrix": confusion.tolist(),
+        }
+
+    def _run_cv(
+        self,
+        texts: List[str],
+        labels: List[str],
+        params: TrainingParams,
+        label_name: str,
+    ) -> Dict[str, object]:
+        folds = max(2, int(params.cv_folds))
+        counts = {label: labels.count(label) for label in set(labels)}
+        min_count = min(counts.values()) if counts else 0
+        if min_count < 2:
+            return {"averages": {}, "folds": [], "labels": sorted(set(labels)), "confusion_matrix": []}
+        if folds > min_count:
+            folds = min_count
+        skf = StratifiedKFold(n_splits=folds, shuffle=True, random_state=42)
+        labels_all = sorted(set(labels))
+        fold_metrics: List[Dict[str, object]] = []
+        for fold_idx, (train_idx, test_idx) in enumerate(skf.split(texts, labels), start=1):
+            self._check_cancel()
+            self._update_job(
+                phase=f"cv_{label_name}",
+                message=f"Cross-validation ({label_name}) fold {fold_idx} of {folds}",
+                progress=0.28 + (0.2 * (fold_idx / folds)),
+                cv_status={
+                    "label": label_name,
+                    "current_fold": fold_idx,
+                    "total_folds": folds,
+                },
+            )
+            pipeline = self._build_uncalibrated_pipeline(params.use_class_weight_balanced)
+            train_texts = [texts[i] for i in train_idx]
+            test_texts = [texts[i] for i in test_idx]
+            train_labels = [labels[i] for i in train_idx]
+            test_labels = [labels[i] for i in test_idx]
+            pipeline.fit(train_texts, train_labels)
+            preds = pipeline.predict(test_texts)
+            metrics = self._compute_detailed_metrics(test_labels, list(preds))
+            fold_metrics.append(metrics)
+            summary = self._summarize_cv_metrics(fold_metrics, labels_all)
+            self._update_job(
+                cv_status={
+                    "label": label_name,
+                    "current_fold": fold_idx,
+                    "total_folds": folds,
+                    "averages": summary.get("averages"),
+                }
+            )
+        return self._summarize_cv_metrics(fold_metrics, labels_all)
 
     def _train_task(self, params: TrainingParams) -> None:
         try:
@@ -299,15 +423,40 @@ class TrainingService:
             texts = [str(r.get("risk_text")) for r in filtered]
             levels = [str(r.get("label_level")) for r in filtered]
             depts = [str(r.get("label_dept")) for r in filtered]
+            dataset_snapshot_hash = self._dataset_snapshot_hash(filtered)
 
-            insights_level_pipeline = self._build_uncalibrated_pipeline()
-            insights_dept_pipeline = self._build_uncalibrated_pipeline()
+            insights_level_pipeline = self._build_uncalibrated_pipeline(params.use_class_weight_balanced)
+            insights_dept_pipeline = self._build_uncalibrated_pipeline(params.use_class_weight_balanced)
             insights_level_pipeline.fit(texts, levels)
             insights_dept_pipeline.fit(texts, depts)
 
             # Build initial calibrated pipelines
-            level_pipeline = self._build_pipeline(params.calibration_method)
-            dept_pipeline = self._build_pipeline(params.calibration_method)
+            level_pipeline = self._build_pipeline(params.calibration_method, params.use_class_weight_balanced)
+            dept_pipeline = self._build_pipeline(params.calibration_method, params.use_class_weight_balanced)
+
+            self._update_job(
+                phase="cv_level",
+                message=f"Running {params.cv_folds}-fold CV for risk level model",
+                progress=0.28,
+                cv_status={"label": "level", "current_fold": 0, "total_folds": params.cv_folds},
+            )
+            self._log_event("Cross-validation started", data={"label": "level", "folds": params.cv_folds})
+            cv_level = self._run_cv(texts, levels, params, "level")
+
+            self._check_cancel()
+
+            self._update_job(
+                phase="cv_dept",
+                message=f"Running {params.cv_folds}-fold CV for department model",
+                progress=0.48,
+                cv_status={"label": "dept", "current_fold": 0, "total_folds": params.cv_folds},
+            )
+            self._log_event("Cross-validation started", data={"label": "dept", "folds": params.cv_folds})
+            cv_dept = self._run_cv(texts, depts, params, "dept")
+
+            cv_metrics = {"level": cv_level, "dept": cv_dept}
+            self._update_job(cv_metrics=cv_metrics, cv_status=None)
+            self._log_event("Cross-validation completed", data={"cv_metrics": cv_metrics})
 
             # Fit level model with graceful fallback if calibration is not feasible
             self._update_job(
@@ -328,7 +477,7 @@ class TrainingService:
                         "falling back to uncalibrated LogisticRegression",
                         data={"error": str(exc)},
                     )
-                    level_pipeline = self._build_uncalibrated_pipeline()
+                    level_pipeline = self._build_uncalibrated_pipeline(params.use_class_weight_balanced)
                     level_pipeline.fit(texts, levels)
                 else:
                     raise
@@ -351,7 +500,7 @@ class TrainingService:
                         "falling back to uncalibrated LogisticRegression",
                         data={"error": str(exc)},
                     )
-                    dept_pipeline = self._build_uncalibrated_pipeline()
+                    dept_pipeline = self._build_uncalibrated_pipeline(params.use_class_weight_balanced)
                     dept_pipeline.fit(texts, depts)
                 else:
                     raise
@@ -363,54 +512,9 @@ class TrainingService:
 
             level_preds = level_pipeline.predict(texts)
             dept_preds = dept_pipeline.predict(texts)
-            level_labels = list(level_pipeline.classes_)
-            dept_labels = list(dept_pipeline.classes_)
-            level_precision = precision_score(levels, level_preds, average=None, labels=level_labels, zero_division=0)
-            dept_precision = precision_score(depts, dept_preds, average=None, labels=dept_labels, zero_division=0)
-            level_recall = recall_score(levels, level_preds, average=None, labels=level_labels, zero_division=0)
-            dept_recall = recall_score(depts, dept_preds, average=None, labels=dept_labels, zero_division=0)
-            level_f1 = f1_score(levels, level_preds, average=None, labels=level_labels, zero_division=0)
-            dept_f1 = f1_score(depts, dept_preds, average=None, labels=dept_labels, zero_division=0)
-
             metrics = {
-                "level": {
-                    "macro_f1": float(f1_score(levels, level_preds, average="macro", zero_division=0)),
-                    "weighted_f1": float(f1_score(levels, level_preds, average="weighted", zero_division=0)),
-                    "balanced_accuracy": float(balanced_accuracy_score(levels, level_preds)),
-                    "labels": level_labels,
-                    "per_class_precision": {
-                        cls: float(prec)
-                        for cls, prec in zip(level_labels, level_precision)
-                    },
-                    "per_class_recall": {
-                        cls: float(rec)
-                        for cls, rec in zip(level_labels, level_recall)
-                    },
-                    "per_class_f1": {
-                        cls: float(score)
-                        for cls, score in zip(level_labels, level_f1)
-                    },
-                    "confusion_matrix": confusion_matrix(levels, level_preds, labels=level_labels).tolist(),
-                },
-                "dept": {
-                    "macro_f1": float(f1_score(depts, dept_preds, average="macro", zero_division=0)),
-                    "weighted_f1": float(f1_score(depts, dept_preds, average="weighted", zero_division=0)),
-                    "balanced_accuracy": float(balanced_accuracy_score(depts, dept_preds)),
-                    "labels": dept_labels,
-                    "per_class_precision": {
-                        cls: float(prec)
-                        for cls, prec in zip(dept_labels, dept_precision)
-                    },
-                    "per_class_recall": {
-                        cls: float(rec)
-                        for cls, rec in zip(dept_labels, dept_recall)
-                    },
-                    "per_class_f1": {
-                        cls: float(score)
-                        for cls, score in zip(dept_labels, dept_f1)
-                    },
-                    "confusion_matrix": confusion_matrix(depts, dept_preds, labels=dept_labels).tolist(),
-                },
+                "level": self._compute_detailed_metrics(levels, list(level_preds)),
+                "dept": self._compute_detailed_metrics(depts, list(dept_preds)),
             }
 
             self._update_job(metrics=metrics)
@@ -432,14 +536,35 @@ class TrainingService:
             joblib.dump(insights_level_pipeline, insights_level_path)
             joblib.dump(insights_dept_pipeline, insights_dept_path)
 
+            artifacts = self._artifact_inventory(bundle_dir)
+            if "bundle_meta.json" not in artifacts:
+                artifacts.append("bundle_meta.json")
             bundle_meta = {
                 "created_at": datetime.now(timezone.utc).isoformat(),
+                "training_record": {
+                    "trained_at": self._now_iso(),
+                    "dataset_snapshot_hash": dataset_snapshot_hash,
+                    "training_params": asdict(params),
+                    "cv_summary": {
+                        "level": (cv_metrics.get("level") or {}).get("averages", {}),
+                        "dept": (cv_metrics.get("dept") or {}).get("averages", {}),
+                    },
+                    "artifacts": artifacts,
+                },
                 "trained_on_rows": len(filtered),
                 "label_distribution": {
                     "level": {label: levels.count(label) for label in set(levels)},
                     "dept": {label: depts.count(label) for label in set(depts)},
                 },
+                "imbalance": {
+                    "class_weight_balanced": params.use_class_weight_balanced,
+                    "oversample_enabled": params.oversample_enabled,
+                    "oversample_cap_ratio": params.oversample_cap_ratio,
+                    "pre_distribution": pre_dist,
+                    "post_distribution": post_dist,
+                },
                 "metrics": metrics,
+                "cv_metrics": self.app_state.training_job.get("cv_metrics"),
                 "label_policy": load_label_policy(self.workspace, self.app_state.active_modelset_id),
             }
             bundle_meta_path = bundle_dir / "bundle_meta.json"
@@ -499,6 +624,8 @@ class TrainingService:
                     "started_at": self._now_iso(),
                     "finished_at": None,
                     "metrics": None,
+                    "cv_metrics": None,
+                    "cv_status": None,
                     "error": None,
                     "level_model_path": None,
                     "dept_model_path": None,
@@ -622,11 +749,11 @@ class TrainingService:
         min_dept_count = min([train_depts.count(label) for label in set(train_depts)])
         if min_level_count < 2 or min_dept_count < 2:
             warnings.append("Too few samples per class for calibration; used uncalibrated model.")
-            level_pipeline = self._build_uncalibrated_pipeline()
-            dept_pipeline = self._build_uncalibrated_pipeline()
+            level_pipeline = self._build_uncalibrated_pipeline(True)
+            dept_pipeline = self._build_uncalibrated_pipeline(True)
         else:
-            level_pipeline = self._build_pipeline("sigmoid")
-            dept_pipeline = self._build_pipeline("sigmoid")
+            level_pipeline = self._build_pipeline("sigmoid", True)
+            dept_pipeline = self._build_pipeline("sigmoid", True)
         level_pipeline.fit(train_texts, train_levels)
         dept_pipeline.fit(train_texts, train_depts)
 

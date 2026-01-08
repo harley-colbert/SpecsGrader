@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 
+from .decision_policy import default_decision_policy
+
 
 @dataclass
 class AppState:
@@ -61,15 +63,7 @@ class AppState:
     )
     sanity_report: Optional[Dict[str, object]] = None
     evaluation_report: Optional[Dict[str, object]] = None
-    production_policy: Dict[str, object] = field(
-        default_factory=lambda: {
-            "model_conf_threshold": 0.75,
-            "vector_similarity_threshold": 0.45,
-            "vector_margin_threshold": 0.1,
-            "allow_llm": False,
-            "abstain_enabled": True,
-        }
-    )
+    decision_policy: Dict[str, object] = field(default_factory=default_decision_policy)
     vector_store: Dict[str, object] = field(
         default_factory=lambda: {"built": False, "path": None}
     )
