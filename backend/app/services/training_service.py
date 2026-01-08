@@ -234,26 +234,56 @@ class TrainingService:
             levels = [str(r.get("label_level")) for r in filtered]
             depts = [str(r.get("label_dept")) for r in filtered]
 
+            # Build initial calibrated pipelines
             level_pipeline = self._build_pipeline(params.calibration_method)
             dept_pipeline = self._build_pipeline(params.calibration_method)
 
+            # Fit level model with graceful fallback if calibration is not feasible
             self._update_job(
                 phase="fit_level_model",
                 message="Training risk level model (TF-IDF + calibrated logistic regression)",
                 progress=0.32,
             )
             self._log_event("Fitting risk level model")
-            level_pipeline.fit(texts, levels)
+            try:
+                level_pipeline.fit(texts, levels)
+            except ValueError as exc:
+                # New in v4.5: if calibration cannot run because there are too few
+                # examples per class for the requested cross-validation strategy,
+                # fall back to an uncalibrated LogisticRegression model.
+                if "less than 2 examples for at least one class" in str(exc):
+                    self._log_event(
+                        "Calibration for level model skipped due to small sample size; "
+                        "falling back to uncalibrated LogisticRegression",
+                        data={"error": str(exc)},
+                    )
+                    level_pipeline = self._build_uncalibrated_pipeline()
+                    level_pipeline.fit(texts, levels)
+                else:
+                    raise
 
             self._check_cancel()
 
+            # Fit department model with the same graceful fallback behaviour
             self._update_job(
                 phase="fit_dept_model",
                 message="Training department model (TF-IDF + calibrated logistic regression)",
                 progress=0.62,
             )
             self._log_event("Fitting department model")
-            dept_pipeline.fit(texts, depts)
+            try:
+                dept_pipeline.fit(texts, depts)
+            except ValueError as exc:
+                if "less than 2 examples for at least one class" in str(exc):
+                    self._log_event(
+                        "Calibration for dept model skipped due to small sample size; "
+                        "falling back to uncalibrated LogisticRegression",
+                        data={"error": str(exc)},
+                    )
+                    dept_pipeline = self._build_uncalibrated_pipeline()
+                    dept_pipeline.fit(texts, depts)
+                else:
+                    raise
 
             self._check_cancel()
 

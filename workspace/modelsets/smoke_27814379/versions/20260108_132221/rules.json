@@ -1,0 +1,38 @@
+{
+  "version": "1.0",
+  "departments": {
+    "mechanical": {
+      "keywords": [
+        "bearing"
+      ],
+      "hard_keywords": [],
+      "min_hits": 1
+    },
+    "electrical": {
+      "keywords": [
+        "panel"
+      ],
+      "hard_keywords": [],
+      "min_hits": 1
+    },
+    "controls": {
+      "keywords": [
+        "plc"
+      ],
+      "hard_keywords": [],
+      "min_hits": 1
+    },
+    "project_management": {
+      "keywords": [
+        "schedule"
+      ],
+      "hard_keywords": [],
+      "min_hits": 1
+    }
+  },
+  "global": {
+    "case_sensitive": false,
+    "match_mode": "token_contains",
+    "abstain_on_tie": true
+  }
+}

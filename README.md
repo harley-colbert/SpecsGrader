@@ -1,6 +1,6 @@
 # SpecsGrader
 
-This repository follows the SpecsGrader plan V4.4. Run the application from the
+This repository follows the SpecsGrader plan V4.5. Run the application from the
 project root; it serves the backend and frontend on the same port and opens a
 PyWebView window to the local URL. The UI currently exposes a three-pane shell
 (Train, Classify, Results) driven by backend state.

@@ -4,7 +4,6 @@ from pathlib import Path
 
 import joblib
 from fastapi.testclient import TestClient
-from sklearn.calibration import CalibratedClassifierCV
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
@@ -15,12 +14,18 @@ from backend.app.state import AppState
 
 
 def _build_pipeline() -> Pipeline:
+    """Build a simple TF-IDF + LogisticRegression pipeline for tests.
+
+    We intentionally avoid calibration here so tests remain stable even on
+    very small synthetic datasets and across different scikit-learn versions.
+    The production training pipeline still uses calibrated models with a
+    fallback to an uncalibrated model when calibration is not feasible.
+    """
     base = LogisticRegression(max_iter=200, class_weight="balanced", n_jobs=1)
-    calibrated = CalibratedClassifierCV(estimator=base, method="sigmoid", cv=2)
     return Pipeline(
         steps=[
             ("tfidf", TfidfVectorizer(max_features=100, ngram_range=(1, 2))),
-            ("clf", calibrated),
+            ("clf", base),
         ]
     )
 

@@ -1,0 +1,14 @@
+{
+  "modelset_id": "smoke_27814379",
+  "version_id": "20260108_132221",
+  "created_at": "2026-01-08T13:22:21.152259+00:00",
+  "parent_version_id": null,
+  "notes": "smoke",
+  "note": "smoke",
+  "includes": {
+    "bundle": true,
+    "vector_store": true,
+    "rules": true,
+    "training_snapshot": true
+  }
+}

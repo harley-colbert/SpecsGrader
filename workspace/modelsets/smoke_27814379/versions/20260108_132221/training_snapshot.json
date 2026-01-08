@@ -1,0 +1,21 @@
+{
+  "captured_at": "2026-01-08T13:22:21.151850+00:00",
+  "training_job": {
+    "status": "idle",
+    "progress": 0.0,
+    "phase": null,
+    "message": null,
+    "events": [],
+    "params": null,
+    "stats": null,
+    "started_at": null,
+    "finished_at": null,
+    "last_updated_at": null,
+    "metrics": null,
+    "error": null,
+    "level_model_path": null,
+    "dept_model_path": null,
+    "bundle_meta_path": null
+  },
+  "training_dataset_summary": null
+}

@@ -99,10 +99,21 @@ def create_app() -> FastAPI:
         mode = mode or (payload.get("mode") if payload else None)
         path = path or (payload.get("path") if payload else None)
 
+        # v4.5: be a bit more forgiving when the frontend forgets to send `mode`.
+        # If a file is uploaded but no mode/path is provided, we assume a training
+        # dataset load initiated from the Train pane.
         if mode not in {"train", "classify"}:
-            message = "Invalid load request; mode must be either 'train' or 'classify'"
-            logger.warning(message)
-            raise HTTPException(status_code=400, detail=message)
+            inferred: str | None = None
+            if mode is None and file is not None and path is None:
+                inferred = "train"
+
+            if inferred is not None:
+                logger.info("Inferring load mode", extra={"inferred_mode": inferred})
+                mode = inferred
+            else:
+                message = "Invalid load request; mode must be either 'train' or 'classify'"
+                logger.warning(message)
+                raise HTTPException(status_code=400, detail=message)
 
         if file is not None:
             uploads_dir = workspace_dir / "uploads"

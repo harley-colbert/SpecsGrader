@@ -1,0 +1,425 @@
+Below is a **no-code wireframe spec** for a streamlined Train pane that supports your two workflows, with **guided gating** so users only see the next meaningful step.
+
+I’m writing this like a UI handoff: structure, copy, states, and what unlocks what.
+
+---
+
+# Train Pane Wireframe (v4.6 UI concept)
+
+## Page layout overview
+
+**Left nav** (unchanged):
+
+* Train (active)
+* Classify
+* Results
+
+**Main content**: one vertical flow with:
+
+1. **Quick Start** (mode selector)
+2. **Path A: Load & Classify** (default)
+3. **Path B: Build/Update ModelSet** (collapsible advanced)
+4. Optional: **Validation** (collapsible, dataset-dependent)
+
+---
+
+# 0) Top Banner (always visible)
+
+### Title
+
+**Train**
+
+### Subtitle
+
+*Load a ModelSet to classify, or build a new ModelSet from labeled training data.*
+
+### “Readiness strip” (compact row, always visible)
+
+A small checklist row with statuses:
+
+* **Active ModelSet:** (none / Model_…)
+* **Models:** ✅/⭕
+* **Rules:** ✅/⭕
+* **Vector Store:** ✅/⭕
+* **Training Data Loaded:** ✅/⭕ *(optional)*
+
+Right side: a single pill showing what the app thinks your current mode is:
+
+* **Mode: Using existing ModelSet** *(default)*
+* or **Mode: Building ModelSet**
+
+---
+
+# 1) QUICK START (Mode chooser) — ALWAYS FIRST
+
+**Card: “What do you want to do?”**
+
+Two big buttons (radio-card style):
+
+### Option A (default, highlighted)
+
+**Use an existing ModelSet and classify**
+Small text: *Load a saved .sgm (or pick a local ModelSet version) and go straight to Classify.*
+
+CTA button inside card:
+
+* **Continue →**
+
+### Option B
+
+**Build / update a ModelSet (advanced)**
+Small text: *Load labeled training data, train models, validate, build vector store, then save a new version.*
+
+CTA button inside card:
+
+* **Continue →**
+
+Behavior:
+
+* Selecting A expands Path A and collapses Path B.
+* Selecting B expands Path B and collapses Path A.
+* User can switch anytime, but warn if there are unsaved changes in rules/training params.
+
+---
+
+# PATH A — “Load ModelSet → Classify” (Primary workflow)
+
+## A1) LOAD MODELSET (Required)
+
+**Card title:** **Step 1 — Load a ModelSet**
+
+Show two tabs inside the card:
+
+### Tab 1: “Local ModelSets”
+
+* Dropdown: **Existing ModelSet**
+* Dropdown: **Version**
+* Button row:
+
+  * **Load selected version** (PRIMARY)
+  * Refresh (secondary)
+* Right side badges:
+
+  * “Active in app: (none / Model_…)”
+  * “Version: …”
+
+### Tab 2: “Import .sgm”
+
+* File picker: Choose .sgm
+* Button: **Import & load** (PRIMARY)
+* Small note: *This will become the active ModelSet for classification.*
+
+#### Locked states:
+
+* If nothing selected: “Load selected version” disabled, helper text: *Select a ModelSet + version.*
+* If import has no file: “Import & load” disabled.
+
+#### Success state (after load):
+
+Banner inside card:
+✅ **Loaded and active:** Model_XXXX / Version YYYY
+
+Then reveal below inside same card:
+
+* **What’s inside this ModelSet**
+
+  * Models: ✅/⭕ (Level model, Dept model)
+  * Rules: ✅/⭕
+  * Vector store: ✅/⭕
+* If something missing, show plain-language guidance:
+
+  * “No vector store found — you can still classify, but vector similarity will be unavailable.”
+
+---
+
+## A2) NEXT ACTION (Guidance)
+
+Immediately below A1, show a single “Next step” card:
+
+**Card title:** **Next step**
+If models are present:
+➡️ **Go to Classify** (PRIMARY button)
+
+Small supporting text:
+*You’re ready to classify using the active ModelSet. Training data is not required for classification.*
+
+If models are missing but rules exist:
+➡️ **Go to Classify (rules-only)**
+
+If nothing useful exists:
+
+* Red message: “This ModelSet has no models/rules. Import another version or build one (Advanced).”
+* Button: **Switch to Build/Update workflow**
+
+---
+
+## A3) OPTIONAL: VALIDATE THIS MODELSET (Collapsed by default)
+
+**Accordion title:** **Optional — Validate this ModelSet**
+
+Collapsed text:
+*Run sanity check / holdout evaluation (requires labeled training data).*
+
+When expanded:
+
+### A3.1 Load labeled training data (only for validation)
+
+* File picker
+* Button: **Load validation dataset**
+* Microcopy: *Used only to compute metrics. Does not change the active model unless you train.*
+
+After load:
+
+* Show dataset stats (rows, labeled rows, label distribution)
+* If labeled rows = 0:
+
+  * Show: “No labeled rows found. Expected columns: E=risk_text, F=label_level, G=label_dept; starting at row 5.”
+
+### A3.2 Validation actions (enabled only if labeled rows > 0)
+
+Two side-by-side buttons:
+
+* **Run sanity check (fast)** (PRIMARY)
+
+  * Helper: *Checks model predictions vs labeled rows.*
+* **Run holdout evaluation (slower)** (secondary)
+
+  * Helper: *Splits labeled data into train/test and reports metrics.*
+
+Results appear inline below each:
+
+* Sanity summary (accuracy-like counts, mismatches)
+* Evaluation summary (macro F1, per-class recall, confusion-ish summary)
+
+Important: If no validation dataset loaded:
+
+* These buttons are disabled and the helper text says: *Load labeled data to enable.*
+
+---
+
+# PATH B — “Build / Update ModelSet” (Advanced workflow, gated)
+
+This is a stepper. Each step is a card with:
+
+* Step title
+* Status pill: Locked / Ready / Complete / Error
+* Primary CTA button
+* “Why locked” message when disabled
+
+## B0) Stepper strip (top of Path B)
+
+A horizontal stepper row with icons:
+
+1. ModelSet
+2. Training data
+3. Rules
+4. Train
+5. Validate
+6. Vector store
+7. Save
+
+Clicking steps scrolls, but steps remain gated.
+
+---
+
+## B1) Step 1 — Select / Create ModelSet (Required)
+
+Same content as Path A load card, but with “Create new ModelSet” emphasized.
+
+Primary CTAs:
+
+* **Create** (if new fields filled)
+* **Load selected version** (if existing selected)
+
+Completion condition:
+✅ A ModelSet is selected and active target is set for outputs.
+
+---
+
+## B2) Step 2 — Load Training Data (Required)
+
+**Card title:** **Step 2 — Load labeled training data**
+
+* File picker
+* Button: **Load training data** (PRIMARY)
+
+After load:
+
+* Dataset summary panel (rows, labeled rows, missing fields)
+* Small preview table (first 10 labeled rows)
+* Label distribution mini-panel (counts per level, per dept)
+
+Completion condition:
+✅ labeled_rows > 0
+
+If labeled_rows == 0:
+
+* Status becomes 🔴 Error
+* Show “How to fix” with exact expectations:
+
+  * “Columns: E=risk_text, F=label_level, G=label_dept”
+  * “Valid levels: none/low/medium/high/extreme”
+  * “Valid depts: mechanical/electrical/controls/project_management”
+  * “Row offset: starts at row 5”
+
+---
+
+## B3) Step 3 — Rules (Optional, but recommended)
+
+**Card title:** **Step 3 — Rules (optional)**
+
+Default simple view:
+
+* “Rules status: Default rules loaded” ✅
+* Buttons:
+
+  * **Edit rules** (secondary)
+  * **Test a phrase** (secondary)
+
+When “Edit rules” is clicked:
+
+* JSON editor appears
+* Buttons:
+
+  * **Save rules** (PRIMARY)
+  * Revert (secondary)
+
+Completion condition:
+✅ rules JSON parses successfully
+(But step can be skipped; show “Skip” button)
+
+---
+
+## B4) Step 4 — Train Models (Required)
+
+**Card title:** **Step 4 — Train models**
+
+Show only essential defaults:
+
+* Calibration method dropdown
+* Oversample toggle (optional)
+* “Advanced settings” collapsible for cap ratio, min recall, etc.
+
+Primary button:
+
+* **Train** (PRIMARY)
+
+Locked until:
+
+* ModelSet selected
+* labeled training rows loaded
+
+During training:
+
+* Progress bar
+* “Recent events” log (auto expands while running)
+
+After training:
+
+* ✅ “Models trained successfully”
+* Show headline metrics:
+
+  * Level macro F1
+  * Dept macro F1
+* Show “Next: Validate” button
+
+---
+
+## B5) Step 5 — Validate (Recommended)
+
+Same as in Path A validation, but unlocked automatically after train.
+
+Buttons:
+
+* **Run sanity check (fast)** (PRIMARY)
+* **Run holdout evaluation** (secondary)
+
+Completion condition:
+
+* optional; but recommended for “Ready to save snapshot” badge
+
+---
+
+## B6) Step 6 — Vector Store (Optional but recommended)
+
+**Card title:** **Step 6 — Build vector store**
+
+Primary:
+
+* **Build vector store** (PRIMARY)
+
+Locked until:
+
+* Training data loaded (at least risk_text rows; ideally labeled_rows > 0)
+  Optional recommended condition:
+* after training (but not required)
+
+Completion:
+✅ vector store built
+
+---
+
+## B7) Step 7 — Save Snapshot / Export (Required to persist)
+
+**Card title:** **Step 7 — Save / Export**
+
+Primary:
+
+* **Save snapshot (new version)** (PRIMARY)
+
+Secondary:
+
+* Export .sgm
+* (Optional) “Set active in app” toggle if not already
+
+Locked until:
+
+* At least one of these has changed/exists:
+
+  * models trained OR rules saved OR vector store built
+
+Completion:
+✅ new version created and listed in Version dropdown
+
+---
+
+# Cross-cutting UX rules (the “guided” behavior)
+
+## 1) Only one primary CTA at a time
+
+At any point, the UI should visually emphasize a single “next action”.
+
+## 2) Locked sections explain themselves
+
+When disabled, show:
+
+* “Locked until: Load training data” (or whatever)
+* “Why: needed for holdout metrics”
+* one link/button: “Take me there”
+
+## 3) “Go to Classify” is always one click away after loading a ModelSet
+
+This is your main workflow. Make it obvious.
+
+## 4) Training data is explicitly optional for classification
+
+This must be stated in the UI so “Rows: 0” doesn’t feel like failure.
+
+---
+
+# Microcopy improvements that remove confusion
+
+Replace vague messages with actionable ones:
+
+* Instead of: “No dataset loaded.”
+
+  * “No labeled dataset loaded. Load one to train or validate. Not required for classification.”
+
+* Instead of: “Rows: 0”
+
+  * “Labeled rows: 0 (required for training & metrics).”
+
+* Add a help line by the training data loader:
+
+  * “Expected columns: E=risk text, F=risk level label, G=department label; data begins at row 5.”
+
