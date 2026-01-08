@@ -1,9 +1,9 @@
-# SpecsGrader
+# SpecsGrader V4.9
 
-This repository follows the SpecsGrader plan V4.6. Run the application from the
+This repository follows the SpecsGrader plan V4.9. Run the application from the
 project root; it serves the backend and frontend on the same port and opens a
 PyWebView window to the local URL. The UI currently exposes a three-pane shell
-(Train, Classify, Results) driven by backend state, with the v4.6 Train pane UX
+(Train, Classify, Results) driven by backend state, with the v4.9 Train pane UX
 upgrade (Quick Start mode selector, Path A load & classify flow, and Path B
 build/update stepper).
 
@@ -15,6 +15,14 @@ source .venv/bin/activate  # or .venv\Scripts\activate on Windows
 pip install -r requirements.txt
 python run.py
 ```
+
+Optional transformer embeddings (local-only):
+
+```bash
+pip install -r requirements-transformer.txt
+```
+
+Place the local model files under `workspace/models/sentence_transformers/all-MiniLM-L6-v2/`.
 
 ## Development
 - Backend: FastAPI app defined in `backend/app/main.py`.

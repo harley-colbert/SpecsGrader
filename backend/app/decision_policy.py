@@ -3,7 +3,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-DEFAULT_WEIGHTS: Dict[str, float] = {"model": 1.2, "vector": 1.0, "llm": 0.6, "rules": 0.2}
+DEFAULT_WEIGHTS: Dict[str, float] = {"model": 1.2, "vector": 1.0, "deep": 1.0, "llm": 0.6, "rules": 0.2}
 
 DEFAULT_DECISION_POLICY: Dict[str, Any] = {
     "version": "1.0",
@@ -13,6 +13,7 @@ DEFAULT_DECISION_POLICY: Dict[str, Any] = {
         {"id": "model", "type": "model_confidence", "min_confidence": 0.75},
         {"id": "consensus", "type": "model_vector_consensus", "min_similarity": 0.45},
         {"id": "vector", "type": "vector_confidence", "min_similarity": 0.45, "min_margin": 0.1},
+        {"id": "deep", "type": "deep_model", "min_confidence": 0.7, "enabled": False},
         {"id": "llm", "type": "llm", "enabled": False},
         {"id": "abstain", "type": "abstain", "enabled": True},
         {"id": "weighted", "type": "weighted"},

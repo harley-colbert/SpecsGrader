@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.9
+- Dataset health checks with imbalance warnings and blocking errors.
+- Per-class validation metrics with confusion matrices.
+- Model insights with top TF-IDF terms per class.
+- Why/Trace evidence in classify results and decision policy evaluation.
+- Decision policy configuration with weighted aggregation.
+- Embedding backends (TF-IDF, LSA, optional transformer) and upgraded vector voting.
+- Optional deep classifier layer (disabled by default).
+
 ## 4.6
 - Train pane UX redesign with Quick Start mode selector.
 - Path A flow for loading a saved ModelSet and going straight to classify.

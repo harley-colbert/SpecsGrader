@@ -2,9 +2,11 @@ import json
 from pathlib import Path
 
 import numpy as np
+from fastapi.testclient import TestClient
 
 from backend.app.vector.embedder import EmbedderConfig
 from backend.app.vector.vector_store import VectorStore
+from backend.app.main import create_app
 
 
 def _rows() -> list[dict[str, str]]:
@@ -40,3 +42,18 @@ def test_lsa_embedder_build_and_query(tmp_path: Path) -> None:
 
     loaded = VectorStore(root)
     assert loaded.embeddings.shape == (len(_rows()), 2)
+
+
+def test_embeddings_backends_endpoint() -> None:
+    client = TestClient(create_app())
+    resp = client.get("/api/embeddings/backends")
+    assert resp.status_code == 200
+    data = resp.json()
+    backends = data.get("backends", {})
+    assert backends.get("tfidf", {}).get("available") is True
+    assert backends.get("lsa", {}).get("available") is True
+    assert "transformer" in backends
+    transformer = backends.get("transformer", {})
+    assert "available" in transformer
+    if transformer.get("available") is False:
+        assert transformer.get("reason")

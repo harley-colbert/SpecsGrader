@@ -53,6 +53,7 @@ class VectorStore:
                 {
                     "distance": float(dist),
                     "similarity": float(1 - dist),
+                    "weight": float(1 - dist),
                     "row": self.rows[int(idx)],
                 }
             )

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 from backend.app.state import AppState
 from backend.app.vector.vector_store import VectorStore
@@ -16,6 +16,8 @@ class VectorPrediction:
     top_similarity: float
     second_similarity: float
     margin: float
+    vote_conf_level: Optional[float]
+    vote_conf_dept: Optional[float]
     top_neighbors: List[Dict[str, object]]
     neighbors: List[Dict[str, object]]
 
@@ -35,8 +37,8 @@ class VectorService:
 
         self.store = None
 
-    def build(self, rows: List[Dict[str, object]]) -> None:
-        cfg = EmbedderConfig()
+    def build(self, rows: List[Dict[str, object]], config: EmbedderConfig | None = None) -> None:
+        cfg = config or EmbedderConfig()
         self.store = VectorStore.build(self.vector_dir, rows, cfg)
         self.app_state.vector_store = {"built": True, "path": str(self.vector_dir)}
 
@@ -50,26 +52,10 @@ class VectorService:
     def predict(self, text: str, k: int = 5) -> VectorPrediction:
         self.ensure_loaded()
         neighbors = self.store.query(text, k)
-        dept_counts: Dict[str, int] = {}
-        level_counts: Dict[str, int] = {}
-        for n in neighbors:
-            row = n["row"]
-            dept = row.get("label_dept")
-            level = row.get("label_level")
-            if dept:
-                dept_counts[dept] = dept_counts.get(dept, 0) + 1
-            if level:
-                level_counts[level] = level_counts.get(level, 0) + 1
-
-        def best_vote(counts: Dict[str, int]):
-            if not counts:
-                return None, 0.0
-            total = sum(counts.values())
-            best_label, best_count = max(counts.items(), key=lambda x: x[1])
-            return best_label, best_count / total if total else 0.0
-
-        dept_pred, dept_conf = best_vote(dept_counts)
-        level_pred, level_conf = best_vote(level_counts)
+        dept_pred, vote_conf_dept = _distance_weighted_vote(neighbors, "label_dept")
+        level_pred, vote_conf_level = _distance_weighted_vote(neighbors, "label_level")
+        dept_conf = vote_conf_dept or 0.0
+        level_conf = vote_conf_level or 0.0
         similarities = [float(n.get("similarity", 0.0)) for n in neighbors]
         top_similarity = similarities[0] if similarities else 0.0
         second_similarity = similarities[1] if len(similarities) > 1 else 0.0
@@ -92,9 +78,29 @@ class VectorService:
             top_similarity=top_similarity,
             second_similarity=second_similarity,
             margin=margin,
+            vote_conf_level=vote_conf_level,
+            vote_conf_dept=vote_conf_dept,
             top_neighbors=top_neighbors,
             neighbors=neighbors,
         )
+
+
+def _distance_weighted_vote(neighbors: List[Dict[str, object]], field: str) -> Tuple[Optional[str], Optional[float]]:
+    scores: Dict[str, float] = {}
+    for neighbor in neighbors:
+        row = neighbor.get("row") or {}
+        label = row.get(field)
+        if not label:
+            continue
+        weight = max(float(neighbor.get("similarity") or 0.0), 0.0)
+        if weight <= 0:
+            continue
+        scores[label] = scores.get(label, 0.0) + weight
+    if not scores:
+        return None, None
+    best_label, best_score = max(scores.items(), key=lambda item: item[1])
+    total = sum(scores.values()) or 1.0
+    return best_label, best_score / total
 
 
 __all__ = ["VectorService", "VectorPrediction"]
