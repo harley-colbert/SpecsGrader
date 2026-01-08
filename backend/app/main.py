@@ -21,6 +21,8 @@ from .services.modelset_service import ModelSetService
 from .services.model_inference_service import ModelInferenceService
 from .services.aggregate_service import aggregate_outputs
 from .services.job_manager import JobManager
+from .services.model_insights_service import ModelInsightsService
+from .label_policy import load_label_policy, save_label_policy
 
 ALLOWED_PANES = {"train", "classify", "results"}
 
@@ -66,6 +68,7 @@ def create_app() -> FastAPI:
         vector_service=vector_service,
         app_version=app.version,
     )
+    insights_service = ModelInsightsService(workspace=workspace_dir)
     llm_service = LLMService()
     classify_job = JobManager()
 
@@ -80,6 +83,20 @@ def create_app() -> FastAPI:
         }
         state["default_mode"] = "production"
         return state
+
+    @app.get("/api/label-policy", response_class=JSONResponse)
+    async def get_label_policy() -> Dict[str, Any]:
+        policy = load_label_policy(workspace_dir, app_state.active_modelset_id)
+        return {"modelset_id": app_state.active_modelset_id, "policy": policy}
+
+    @app.put("/api/modelsets/{modelset_id}/label-policy", response_class=JSONResponse)
+    async def update_label_policy(modelset_id: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        modelset_service.get_modelset(modelset_id)
+        policy = payload.get("policy")
+        if not isinstance(policy, dict):
+            raise HTTPException(status_code=400, detail="policy payload is required")
+        save_label_policy(workspace_dir, modelset_id, policy)
+        return {"modelset_id": modelset_id, "policy": policy}
 
     @app.post("/api/ui/set_active_pane", response_class=JSONResponse)
     async def set_active_pane(payload: Dict[str, str] = Body(...)) -> Dict[str, Any]:
@@ -185,6 +202,14 @@ def create_app() -> FastAPI:
         rows = dataset.get("rows", [])
         sliced = rows[offset : offset + limit]
         return {"rows": sliced, "total": len(rows)}
+
+    @app.get("/api/data/health", response_class=JSONResponse)
+    async def data_health(mode: str = "train") -> Dict[str, Any]:
+        if mode != "train":
+            raise HTTPException(status_code=400, detail="Dataset health is only available for training data.")
+        if app_state.training_dataset is None:
+            raise HTTPException(status_code=404, detail="Training dataset not loaded")
+        return training_service.dataset_health()
 
     @app.get("/api/rules/get", response_class=JSONResponse)
     async def get_rules() -> Dict[str, Any]:
@@ -534,6 +559,28 @@ def create_app() -> FastAPI:
             filename=path.name,
         )
 
+    @app.get("/api/modelsets/{modelset_id}/insights", response_class=JSONResponse)
+    async def modelsets_insights(
+        modelset_id: str,
+        version_id: str | None = None,
+        top_n: int = 20,
+    ) -> Dict[str, Any]:
+        if top_n <= 0:
+            raise HTTPException(status_code=400, detail="top_n must be greater than 0")
+        try:
+            resolved_version_id, bundle_dir = modelset_service.get_bundle_dir(modelset_id, version_id)
+            insights = insights_service.get_insights(bundle_dir, top_n=top_n)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {
+            "modelset_id": modelset_id,
+            "version_id": resolved_version_id,
+            "top_n": top_n,
+            "insights": insights,
+        }
+
     @app.post("/api/modelsets/import", response_class=JSONResponse)
     async def modelsets_import(file: UploadFile = File(...)) -> Dict[str, Any]:
         try:
@@ -639,11 +686,27 @@ def create_app() -> FastAPI:
             if enabled.get("model"):
                 model_pred = model_inference_service.predict(text)
                 if model_pred.available:
+                    level_terms = model_inference_service.top_terms_in_text(
+                        text,
+                        "level",
+                        model_pred.level_pred,
+                        top_n=3,
+                    )
+                    dept_terms = model_inference_service.top_terms_in_text(
+                        text,
+                        "dept",
+                        model_pred.dept_pred,
+                        top_n=3,
+                    )
                     method_outputs["model"] = {
                         "dept_pred": model_pred.dept_pred,
                         "dept_conf": model_pred.dept_conf,
                         "level_pred": model_pred.level_pred,
                         "level_conf": model_pred.level_conf,
+                        "level_proba": model_pred.level_proba,
+                        "dept_proba": model_pred.dept_proba,
+                        "level_top_terms": level_terms,
+                        "dept_top_terms": dept_terms,
                     }
 
             aggregated = aggregate_outputs(method_outputs, mode=mode, thresholds=policy)

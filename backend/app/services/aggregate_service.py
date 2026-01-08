@@ -74,11 +74,29 @@ def aggregate_outputs(
     model_output = method_outputs.get("model") or {}
     vector_output = method_outputs.get("vector") or {}
     llm_output = method_outputs.get("llm") or {}
+    vector_neighbors = vector_output.get("top_neighbors") or vector_output.get("neighbors")
+    if isinstance(vector_neighbors, list):
+        vector_neighbors = vector_neighbors[:3]
     trace["evidence"] = {
-        "rule_hits": rules_output.get("matched"),
-        "hard_hits": rules_output.get("hard_hits"),
-        "vector_neighbors": vector_output.get("neighbors"),
-        "llm_reason": llm_output.get("reason"),
+        "rules": {
+            "matched": rules_output.get("matched"),
+            "hard_hits": rules_output.get("hard_hits"),
+            "is_hard": rules_output.get("hard"),
+        },
+        "model": {
+            "level_proba": model_output.get("level_proba"),
+            "dept_proba": model_output.get("dept_proba"),
+            "level_top_terms": model_output.get("level_top_terms"),
+            "dept_top_terms": model_output.get("dept_top_terms"),
+        },
+        "vector": {
+            "neighbors": vector_neighbors,
+            "top_similarity": vector_output.get("top_similarity"),
+            "margin": vector_output.get("margin"),
+        },
+        "llm": {
+            "reason": llm_output.get("reason"),
+        },
     }
 
     hard_rules = bool(rules_output.get("hard"))

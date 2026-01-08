@@ -1,4 +1,5 @@
 import asyncio
+import json
 import zipfile
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from backend.app.state import AppState
 from backend.app.services.modelset_service import ModelSetService
 from backend.app.services.rule_service import RuleService
 from backend.app.services.vector_service import VectorService
+from backend.app.label_policy import save_label_policy, default_label_policy
 
 
 def _write_text(path: Path, text: str) -> None:
@@ -43,6 +45,11 @@ def _build_service(tmp_path: Path) -> ModelSetService:
         app_version="test",
     )
     service.create_modelset(modelset_id="sgm", name="SGM", description="")
+    policy = default_label_policy()
+    policy["risk_levels"].append(
+        {"id": "custom", "label": "CUSTOM", "description": "Custom level for test."}
+    )
+    save_label_policy(workspace, "sgm", policy)
     service.save_version(modelset_id="sgm", note="v1")
     return service
 
@@ -106,3 +113,31 @@ def test_import_rejects_zip_slip(tmp_path: Path) -> None:
             assert "path traversal" in str(exc) or "absolute paths" in str(exc)
         else:
             raise AssertionError("Expected zip-slip rejection")
+
+
+def test_import_preserves_label_policy(tmp_path: Path) -> None:
+    service = _build_service(tmp_path)
+    export_path = service.export_sgm(modelset_id="sgm")
+
+    workspace = tmp_path / "workspace_import"
+    workspace.mkdir(parents=True, exist_ok=True)
+    app_state = AppState()
+    rule_service = RuleService(app_state.rules_config)
+    vector_service = VectorService(workspace=workspace, app_state=app_state)
+    service = ModelSetService(
+        workspace=workspace,
+        app_state=app_state,
+        rule_service=rule_service,
+        vector_service=vector_service,
+        app_version="test",
+    )
+
+    with export_path.open("rb") as fh:
+        upload = UploadFile(filename=export_path.name, file=fh)
+        result = asyncio.run(service.import_sgm(upload))
+
+    policy_path = workspace / "modelsets" / result["modelset_id"] / "label_policy.json"
+    assert policy_path.exists()
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    ids = {item["id"] for item in policy.get("risk_levels", [])}
+    assert "custom" in ids

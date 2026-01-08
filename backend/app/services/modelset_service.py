@@ -10,6 +10,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import UploadFile
 
+from ..label_policy import (
+    get_modelset_policy_path,
+    load_label_policy,
+    save_label_policy,
+)
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -306,6 +311,10 @@ class ModelSetService:
 
         workspace_bundle = self.workspace / "workspace_bundle"
         vector_store = self.workspace / "vector_store"
+        policy_path = get_modelset_policy_path(self.workspace, modelset_id)
+        label_policy = load_label_policy(self.workspace, modelset_id)
+        if not policy_path.exists():
+            save_label_policy(self.workspace, modelset_id, label_policy)
 
         with tempfile.TemporaryDirectory(prefix="specsgrader_modelset_") as td:
             tmp = Path(td)
@@ -317,6 +326,7 @@ class ModelSetService:
                 "vector_store": False,
                 "rules": False,
                 "training_snapshot": False,
+                "label_policy": False,
             }
 
             if include_bundle:
@@ -338,6 +348,9 @@ class ModelSetService:
                 }
                 _write_json(version_dir / "training_snapshot.json", snapshot)
                 included["training_snapshot"] = True
+
+            _write_json(version_dir / "label_policy.json", label_policy)
+            included["label_policy"] = True
 
             version_meta = {
                 "modelset_id": modelset_id,
@@ -439,13 +452,23 @@ class ModelSetService:
         if bundle_dir.exists():
             level_path = bundle_dir / "level_model.joblib"
             dept_path = bundle_dir / "dept_model.joblib"
+            insights_level_path = bundle_dir / "level_insights_model.joblib"
+            insights_dept_path = bundle_dir / "dept_insights_model.joblib"
             meta_path = bundle_dir / "bundle_meta.json"
             self.app_state.training_job["level_model_path"] = str(level_path) if level_path.exists() else None
             self.app_state.training_job["dept_model_path"] = str(dept_path) if dept_path.exists() else None
+            self.app_state.training_job["level_insights_model_path"] = (
+                str(insights_level_path) if insights_level_path.exists() else None
+            )
+            self.app_state.training_job["dept_insights_model_path"] = (
+                str(insights_dept_path) if insights_dept_path.exists() else None
+            )
             self.app_state.training_job["bundle_meta_path"] = str(meta_path) if meta_path.exists() else None
         else:
             self.app_state.training_job["level_model_path"] = None
             self.app_state.training_job["dept_model_path"] = None
+            self.app_state.training_job["level_insights_model_path"] = None
+            self.app_state.training_job["dept_insights_model_path"] = None
             self.app_state.training_job["bundle_meta_path"] = None
 
         # training snapshot (summary + training telemetry)
@@ -478,6 +501,27 @@ class ModelSetService:
             "bundle_loaded": bundle_dir.exists(),
         }
 
+    def get_bundle_dir(self, modelset_id: str, version_id: Optional[str] = None) -> tuple[str, Path]:
+        modelset_id = self._normalize_id(modelset_id)
+        if not self._modelset_meta_path(modelset_id).exists():
+            raise FileNotFoundError("ModelSet not found")
+
+        versions = self.list_versions(modelset_id)
+        if not versions:
+            raise FileNotFoundError("ModelSet has no saved versions")
+
+        if version_id is None:
+            version_id = versions[0]["version_id"]
+        version_id = self._normalize_id(version_id)
+
+        vdir = self._version_dir(modelset_id, version_id)
+        if not vdir.exists():
+            raise FileNotFoundError("Version not found")
+        bundle_dir = vdir / "bundle"
+        if not bundle_dir.exists():
+            raise FileNotFoundError("Bundle not found for version")
+        return version_id, bundle_dir
+
     # -----------------
     # Export / Import (.sgm)
     # -----------------
@@ -501,6 +545,8 @@ class ModelSetService:
             out_path.unlink()
 
         version_meta = _read_json(vdir / "version.json") if (vdir / "version.json").exists() else {"version_id": version_id}
+        policy_path = vdir / "label_policy.json"
+        label_policy = _read_json(policy_path) if policy_path.exists() else load_label_policy(self.workspace, modelset_id)
         manifest = {
             "format": "specsgrader-modelset",
             "format_version": self.FORMAT_VERSION,
@@ -512,6 +558,7 @@ class ModelSetService:
             "parent_version_id": version_meta.get("parent_version_id"),
             "notes": version_meta.get("notes") or version_meta.get("note"),
             "tags": modelset.tags,
+            "label_policy": label_policy,
             "modelset": {
                 "modelset_id": modelset.modelset_id,
                 "name": modelset.name,
@@ -531,6 +578,8 @@ class ModelSetService:
                     shutil.copytree(entry, dest)
                 else:
                     shutil.copy2(entry, dest)
+            if not (tmp / "label_policy.json").exists():
+                _write_json(tmp / "label_policy.json", label_policy)
             _write_json(tmp / "manifest.json", manifest)
             self._write_checksums(tmp, exclude={"checksums.sha256"})
 
@@ -602,6 +651,15 @@ class ModelSetService:
                     shutil.copytree(entry, dest, dirs_exist_ok=True)
                 else:
                     shutil.copy2(entry, dest)
+
+            label_policy_path = source_root / "label_policy.json"
+            label_policy = None
+            if label_policy_path.exists():
+                label_policy = _read_json(label_policy_path)
+            elif isinstance(manifest.get("label_policy"), dict):
+                label_policy = manifest.get("label_policy")
+            if label_policy:
+                save_label_policy(self.workspace, modelset_id, label_policy)
 
             # Ensure version meta exists and matches the target id.
             vmeta_path = target_dir / "version.json"
