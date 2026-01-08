@@ -63,6 +63,9 @@ def test_export_contains_manifest_and_checksums(tmp_path: Path) -> None:
         assert "manifest.json" in names
         assert "checksums.sha256" in names
         assert "rules.json" in names
+        manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+        version_meta = manifest.get("version") or {}
+        assert "training_record" in version_meta
 
 
 def test_import_rejects_checksum_mismatch(tmp_path: Path) -> None:
@@ -141,3 +144,6 @@ def test_import_preserves_label_policy(tmp_path: Path) -> None:
     policy = json.loads(policy_path.read_text(encoding="utf-8"))
     ids = {item["id"] for item in policy.get("risk_levels", [])}
     assert "custom" in ids
+    version_path = workspace / "modelsets" / result["modelset_id"] / "versions" / result["version_id"] / "version.json"
+    version_meta = json.loads(version_path.read_text(encoding="utf-8"))
+    assert "training_record" in version_meta

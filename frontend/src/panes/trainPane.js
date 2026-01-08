@@ -90,6 +90,8 @@ let trainingParams = {
   oversample_cap_ratio: 0.3,
   min_recall_per_class: 0.5,
   calibration_method: "sigmoid",
+  cv_folds: 5,
+  use_class_weight_balanced: true,
 };
 
 function stopTrainingPoll() {
@@ -285,6 +287,71 @@ function renderLabelPolicy(policy) {
   `;
 }
 
+function renderDecisionPolicy(policy) {
+  if (!policy) {
+    return `<p class="muted">Decision policy unavailable for this version.</p>`;
+  }
+  const layers = Array.isArray(policy.layers) ? policy.layers : [];
+  const weights = policy.weights || {};
+  if (!layers.length) {
+    return `<p class="muted">Decision policy has no layers.</p>`;
+  }
+  const layerRows = layers
+    .map((layer, index) => {
+      const type = safeString(layer.type);
+      const id = safeString(layer.id || type || `layer-${index + 1}`);
+      const enabled = layer.enabled === false ? "Disabled" : "Enabled";
+      const details = [];
+      if (type === "model_confidence") {
+        details.push(`Min confidence ≥ ${safeString(layer.min_confidence ?? 0)}`);
+      }
+      if (type === "model_vector_consensus") {
+        details.push(`Min similarity ≥ ${safeString(layer.min_similarity ?? 0)}`);
+      }
+      if (type === "vector_confidence") {
+        details.push(`Min similarity ≥ ${safeString(layer.min_similarity ?? 0)}`);
+        details.push(`Min margin ≥ ${safeString(layer.min_margin ?? 0)}`);
+      }
+      if (type === "weighted") {
+        details.push(
+          `Weights: model ${safeString(weights.model ?? 0)}, vector ${safeString(weights.vector ?? 0)}, llm ${safeString(
+            weights.llm ?? 0
+          )}, rules ${safeString(weights.rules ?? 0)}`
+        );
+      }
+      if (type === "llm" || type === "abstain") {
+        details.push(enabled);
+      }
+      const criteria = details.length ? details.join(" · ") : enabled;
+      return `
+        <tr>
+          <td>${index + 1}. ${id}</td>
+          <td>${safeString(type)}</td>
+          <td>${criteria}</td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  return `
+    <div class="card card-inset">
+      <h4>Decision policy</h4>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Order</th>
+            <th>Layer type</th>
+            <th>Criteria</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${layerRows}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 function formatTs(ts) {
   if (!ts) return "";
   try {
@@ -332,6 +399,83 @@ function renderMiniJson(obj) {
   }
 }
 
+function renderCvSummary(cvMetrics, cvStatus) {
+  if (!cvMetrics) {
+    if (cvStatus?.label) {
+      const current = Number(cvStatus.current_fold || 0);
+      const total = Number(cvStatus.total_folds || 0);
+      return `
+        <div class="card card-inset">
+          <h4>Cross-validation</h4>
+          <p class="muted">Running ${safeString(cvStatus.label)} fold ${current} of ${total}...</p>
+        </div>
+      `;
+    }
+    return "";
+  }
+  const renderBlock = (label, metrics) => {
+    const averages = metrics?.averages || {};
+    return `
+      <div class="card card-inset">
+        <h4>CV summary — ${safeString(label)}</h4>
+        <ul class="stats">
+          <li>Macro F1: ${Number(averages.macro_f1 || 0).toFixed(2)}</li>
+          <li>Weighted F1: ${Number(averages.weighted_f1 || 0).toFixed(2)}</li>
+          <li>Balanced accuracy: ${Number(averages.balanced_accuracy || 0).toFixed(2)}</li>
+        </ul>
+      </div>
+    `;
+  };
+  return `
+    <div class="cv-summary">
+      ${renderBlock("Risk level", cvMetrics.level)}
+      ${renderBlock("Department", cvMetrics.dept)}
+    </div>
+  `;
+}
+
+function renderImbalanceDistributions(preDist, postDist) {
+  if (!preDist && !postDist) {
+    return "";
+  }
+  const renderSection = (title, dist) => {
+    if (!dist) {
+      return `<p class="muted">No ${title.toLowerCase()} distribution recorded.</p>`;
+    }
+    const levelEntries = Object.entries(dist.level || {});
+    const deptEntries = Object.entries(dist.dept || {});
+    return `
+      <div class="card card-inset">
+        <h4>${title} distribution</h4>
+        <div class="card-grid">
+          <div class="card">
+            <h5>Risk levels</h5>
+            ${levelEntries.length
+              ? `<ul class="stats">${levelEntries
+                  .map(([label, count]) => `<li>${safeString(label)}: ${count}</li>`)
+                  .join("")}</ul>`
+              : `<p class="muted">No level distribution recorded.</p>`}
+          </div>
+          <div class="card">
+            <h5>Departments</h5>
+            ${deptEntries.length
+              ? `<ul class="stats">${deptEntries
+                  .map(([label, count]) => `<li>${safeString(label)}: ${count}</li>`)
+                  .join("")}</ul>`
+              : `<p class="muted">No department distribution recorded.</p>`}
+          </div>
+        </div>
+      </div>
+    `;
+  };
+  return `
+    <div class="imbalance-summary">
+      ${renderSection("Pre-oversample", preDist)}
+      ${renderSection("Post-oversample", postDist)}
+    </div>
+  `;
+}
+
 function renderTrainingDetails(job) {
   if (!job) return "";
   const params = job.params || null;
@@ -373,6 +517,12 @@ function renderTrainingDetails(job) {
 
 function getSelectedModelset() {
   return modelsets.find((ms) => ms.modelset_id === modelsetSelectId) || null;
+}
+
+function getSelectedModelsetVersion() {
+  const ms = getSelectedModelset();
+  const versions = ms?.versions || [];
+  return versions.find((version) => version.version_id === modelsetVersionSelectId) || null;
 }
 
 function renderModelsetSelectOptions() {
@@ -432,6 +582,8 @@ function render(state) {
   const hasVector = Boolean(capabilities.vector);
   const activeModelsetId = state.active_modelset_id;
   const activeModelsetVersionId = state.active_modelset_version_id;
+  const selectedModelsetVersion = getSelectedModelsetVersion();
+  const selectedDecisionPolicy = selectedModelsetVersion?.decision_policy || null;
   const healthStats = datasetHealth || trainingStatus?.stats || null;
   const hasActiveModelset = Boolean(activeModelsetId);
   const insightsModelsetId = modelsetSelectId || activeModelsetId;
@@ -561,6 +713,10 @@ function render(state) {
           <button id="modelset-refresh" ${modelsetsLoading ? "disabled" : ""}>${modelsetsLoading ? "Refreshing..." : "Refresh"}</button>
           <button id="modelset-load" ${modelsetSelectId && modelsetVersionSelectId ? "" : "disabled"}>Load selected version</button>
           <button id="modelset-export" ${modelsetSelectId && modelsetVersionSelectId ? "" : "disabled"}>Export .sgm</button>
+        </div>
+
+        <div class="modelset-policy">
+          ${renderDecisionPolicy(selectedDecisionPolicy)}
         </div>
       </div>
 
@@ -897,8 +1053,24 @@ function render(state) {
                   <option value="isotonic" ${trainingParams.calibration_method === "isotonic" ? "selected" : ""}>isotonic</option>
                 </select>
               </label>
+              <label class="field">
+                <span>CV folds</span>
+                <select id="cv-folds">
+                  <option value="3" ${trainingParams.cv_folds === 3 ? "selected" : ""}>3</option>
+                  <option value="5" ${trainingParams.cv_folds === 5 ? "selected" : ""}>5</option>
+                  <option value="10" ${trainingParams.cv_folds === 10 ? "selected" : ""}>10</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Class weight balanced</span>
+                <input type="checkbox" id="class-weight-balanced" ${trainingParams.use_class_weight_balanced ? "checked" : ""} />
+              </label>
             </div>
           </div>
+          ${renderImbalanceDistributions(
+            trainingStatus?.stats?.preprocess_distribution,
+            trainingStatus?.stats?.training_distribution
+          )}
           `
           : ""}
         <div class="progress-row">
@@ -914,6 +1086,7 @@ function render(state) {
         </div>
         ${trainingStatus?.error ? `<div class="train-error">Error: ${safeString(trainingStatus.error)}</div>` : ""}
         ${renderTrainingDetails(trainingStatus)}
+        ${renderCvSummary(trainingStatus?.cv_metrics, trainingStatus?.cv_status)}
         ${trainingMetrics ? renderMetrics(trainingMetrics) : ""}
         ${step4Complete ? `<p class="step-status success">✅ Training complete. Level macro F1 ${headlineLevelF1} | Dept macro F1 ${headlineDeptF1}. Next: Validate.</p>` : ""}
       </div>
@@ -1108,6 +1281,8 @@ function render(state) {
   const oversampleCapInput = rootEl.querySelector("#oversample-cap");
   const minRecallInput = rootEl.querySelector("#min-recall");
   const calibrationSelect = rootEl.querySelector("#calibration-method");
+  const cvFoldsSelect = rootEl.querySelector("#cv-folds");
+  const classWeightCheckbox = rootEl.querySelector("#class-weight-balanced");
   const startBtn = rootEl.querySelector("#train-start");
   const cancelBtn = rootEl.querySelector("#train-cancel");
   const vectorBtn = rootEl.querySelector("#vector-build");
@@ -1123,6 +1298,8 @@ function render(state) {
     trainingParams.oversample_cap_ratio = parseFloat(oversampleCapInput?.value || trainingParams.oversample_cap_ratio);
     trainingParams.min_recall_per_class = parseFloat(minRecallInput?.value || trainingParams.min_recall_per_class);
     trainingParams.calibration_method = calibrationSelect?.value || trainingParams.calibration_method;
+    trainingParams.cv_folds = parseInt(cvFoldsSelect?.value || trainingParams.cv_folds, 10);
+    trainingParams.use_class_weight_balanced = classWeightCheckbox?.checked ?? trainingParams.use_class_weight_balanced;
   };
 
   if (startBtn) {

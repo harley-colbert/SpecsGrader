@@ -6,7 +6,7 @@ import numpy as np
 import joblib
 from sklearn.neighbors import NearestNeighbors
 
-from .embedder import Embedder, EmbedderConfig
+from .embedder import EmbedderConfig, load_embedder, train_embedder
 
 
 class VectorStore:
@@ -15,7 +15,7 @@ class VectorStore:
         self.embeddings_path = root / "embeddings.npy"
         self.rows_path = root / "rows.jsonl"
         self.index_path = root / "index.joblib"
-        self.embedder = Embedder.load(root)
+        self.embedder = load_embedder(root)
         self.embeddings = np.load(self.embeddings_path)
         self.rows = [json.loads(line) for line in self.rows_path.read_text(encoding="utf-8").splitlines() if line]
         self.index: NearestNeighbors = joblib.load(self.index_path)
@@ -30,7 +30,7 @@ class VectorStore:
     ) -> "VectorStore":
         root.mkdir(parents=True, exist_ok=True)
         texts = [str(r.get("risk_text", "")) for r in rows]
-        embedder = Embedder.train(texts, embedder_cfg)
+        embedder = train_embedder(texts, embedder_cfg)
         embeddings = embedder.embed_texts(texts)
 
         index = NearestNeighbors(metric="cosine", algorithm="brute")

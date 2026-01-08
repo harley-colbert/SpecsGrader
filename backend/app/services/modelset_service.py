@@ -15,6 +15,13 @@ from ..label_policy import (
     load_label_policy,
     save_label_policy,
 )
+from ..decision_policy import (
+    default_decision_policy,
+    load_decision_policy,
+    resolve_decision_policy,
+    save_decision_policy,
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -279,6 +286,14 @@ class ModelSetService:
             if not meta_path.exists():
                 continue
             meta = _read_json(meta_path)
+            if "decision_policy" not in meta:
+                policy_path = d / "decision_policy.json"
+                if policy_path.exists():
+                    meta["decision_policy"] = load_decision_policy(policy_path)
+                else:
+                    meta["decision_policy"] = default_decision_policy()
+            if "training_record" not in meta:
+                meta["training_record"] = {}
             versions.append(meta)
         # newest first
         versions.sort(key=lambda x: str(x.get("created_at") or ""), reverse=True)
@@ -315,6 +330,42 @@ class ModelSetService:
         label_policy = load_label_policy(self.workspace, modelset_id)
         if not policy_path.exists():
             save_label_policy(self.workspace, modelset_id, label_policy)
+        decision_policy = resolve_decision_policy(getattr(self.app_state, "decision_policy", None))
+
+        def _artifact_inventory() -> List[str]:
+            artifacts: List[str] = []
+            if workspace_bundle.exists():
+                for p in sorted(workspace_bundle.iterdir()):
+                    if p.is_file():
+                        artifacts.append(f"bundle/{p.name}")
+            if vector_store.exists():
+                for p in sorted(vector_store.iterdir()):
+                    if p.is_file():
+                        artifacts.append(f"vector_store/{p.name}")
+            for fname in ("rules.json", "label_policy.json", "decision_policy.json", "training_snapshot.json"):
+                artifacts.append(fname)
+            return artifacts
+
+        def _resolve_training_record() -> Dict[str, Any]:
+            bundle_meta_path = workspace_bundle / "bundle_meta.json"
+            if bundle_meta_path.exists():
+                bundle_meta = _read_json(bundle_meta_path)
+                record = bundle_meta.get("training_record")
+                if isinstance(record, dict):
+                    return {**record, "artifacts": _artifact_inventory()}
+            training_job = self.app_state.training_job or {}
+            params = training_job.get("params") or {}
+            cv_metrics = training_job.get("cv_metrics") or {}
+            return {
+                "trained_at": training_job.get("finished_at"),
+                "dataset_snapshot_hash": "",
+                "training_params": params,
+                "cv_summary": {
+                    "level": (cv_metrics.get("level") or {}).get("averages", {}),
+                    "dept": (cv_metrics.get("dept") or {}).get("averages", {}),
+                },
+                "artifacts": _artifact_inventory(),
+            }
 
         with tempfile.TemporaryDirectory(prefix="specsgrader_modelset_") as td:
             tmp = Path(td)
@@ -327,6 +378,7 @@ class ModelSetService:
                 "rules": False,
                 "training_snapshot": False,
                 "label_policy": False,
+                "decision_policy": False,
             }
 
             if include_bundle:
@@ -352,6 +404,13 @@ class ModelSetService:
             _write_json(version_dir / "label_policy.json", label_policy)
             included["label_policy"] = True
 
+            save_decision_policy(version_dir / "decision_policy.json", decision_policy)
+            included["decision_policy"] = True
+
+            training_job = self.app_state.training_job or {}
+            training_params = training_job.get("params") or {}
+            training_stats = training_job.get("stats") or {}
+            training_record = _resolve_training_record()
             version_meta = {
                 "modelset_id": modelset_id,
                 "version_id": version_id,
@@ -360,6 +419,16 @@ class ModelSetService:
                 "notes": resolved_notes,
                 "note": resolved_notes,
                 "includes": included,
+                "decision_policy": decision_policy,
+                "cv_metrics": training_job.get("cv_metrics"),
+                "training_record": training_record,
+                "imbalance": {
+                    "class_weight_balanced": training_params.get("use_class_weight_balanced"),
+                    "oversample_enabled": training_params.get("oversample_enabled"),
+                    "oversample_cap_ratio": training_params.get("oversample_cap_ratio"),
+                    "pre_distribution": training_stats.get("preprocess_distribution"),
+                    "post_distribution": training_stats.get("training_distribution"),
+                },
             }
             _write_json(version_dir / "version.json", version_meta)
 
@@ -437,6 +506,9 @@ class ModelSetService:
             self.app_state.rules_config = rules
             # Reset RuleService in-place
             self.rule_service.rules = rules
+
+        decision_policy_path = vdir / "decision_policy.json"
+        self.app_state.decision_policy = resolve_decision_policy(load_decision_policy(decision_policy_path))
 
         # vector store
         vec_dir = vdir / "vector_store"
@@ -547,6 +619,11 @@ class ModelSetService:
         version_meta = _read_json(vdir / "version.json") if (vdir / "version.json").exists() else {"version_id": version_id}
         policy_path = vdir / "label_policy.json"
         label_policy = _read_json(policy_path) if policy_path.exists() else load_label_policy(self.workspace, modelset_id)
+        decision_policy_path = vdir / "decision_policy.json"
+        if decision_policy_path.exists():
+            decision_policy = _read_json(decision_policy_path)
+        else:
+            decision_policy = version_meta.get("decision_policy") or default_decision_policy()
         manifest = {
             "format": "specsgrader-modelset",
             "format_version": self.FORMAT_VERSION,
@@ -559,6 +636,7 @@ class ModelSetService:
             "notes": version_meta.get("notes") or version_meta.get("note"),
             "tags": modelset.tags,
             "label_policy": label_policy,
+            "decision_policy": decision_policy,
             "modelset": {
                 "modelset_id": modelset.modelset_id,
                 "name": modelset.name,
@@ -580,6 +658,8 @@ class ModelSetService:
                     shutil.copy2(entry, dest)
             if not (tmp / "label_policy.json").exists():
                 _write_json(tmp / "label_policy.json", label_policy)
+            if not (tmp / "decision_policy.json").exists():
+                _write_json(tmp / "decision_policy.json", decision_policy)
             _write_json(tmp / "manifest.json", manifest)
             self._write_checksums(tmp, exclude={"checksums.sha256"})
 
@@ -661,6 +741,16 @@ class ModelSetService:
             if label_policy:
                 save_label_policy(self.workspace, modelset_id, label_policy)
 
+            decision_policy_path = source_root / "decision_policy.json"
+            decision_policy = None
+            if decision_policy_path.exists():
+                decision_policy = _read_json(decision_policy_path)
+            elif isinstance(manifest.get("decision_policy"), dict):
+                decision_policy = manifest.get("decision_policy")
+            if not decision_policy:
+                decision_policy = default_decision_policy()
+            save_decision_policy(target_dir / "decision_policy.json", decision_policy)
+
             # Ensure version meta exists and matches the target id.
             vmeta_path = target_dir / "version.json"
             vmeta = _read_json(vmeta_path) if vmeta_path.exists() else {}
@@ -670,6 +760,9 @@ class ModelSetService:
             vmeta.setdefault("note", vmeta["notes"])
             vmeta.setdefault("parent_version_id", manifest.get("parent_version_id"))
             vmeta.setdefault("includes", {})
+            vmeta.setdefault("training_record", {})
+            vmeta.setdefault("decision_policy", decision_policy)
+            vmeta["includes"].setdefault("decision_policy", True)
             _write_json(vmeta_path, vmeta)
 
             # bump updated_at

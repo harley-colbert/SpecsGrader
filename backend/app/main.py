@@ -246,6 +246,8 @@ def create_app() -> FastAPI:
             oversample_cap_ratio=float(payload.get("oversample_cap_ratio", 0.3)),
             min_recall_per_class=float(payload.get("min_recall_per_class", 0.5)),
             calibration_method=str(payload.get("calibration_method", "sigmoid")),
+            cv_folds=int(payload.get("cv_folds", 5)),
+            use_class_weight_balanced=bool(payload.get("use_class_weight_balanced", True)),
         )
         training_service.start_training(params)
         return training_service.status()
@@ -618,7 +620,7 @@ def create_app() -> FastAPI:
 
         policy = payload.get("policy") if payload else None
         if not isinstance(policy, dict):
-            policy = dict(app_state.production_policy)
+            policy = dict(app_state.decision_policy)
 
         default_enabled = {
             "sanity": {"model": True, "rules": False, "vector": False, "llm": False},
@@ -709,7 +711,7 @@ def create_app() -> FastAPI:
                         "dept_top_terms": dept_terms,
                     }
 
-            aggregated = aggregate_outputs(method_outputs, mode=mode, thresholds=policy)
+            aggregated = aggregate_outputs(method_outputs, mode=mode, policy=policy)
             level_threshold = float(thresholds.get("level", 0.0))
             dept_threshold = float(thresholds.get("dept", 0.0))
             below_threshold = aggregated["conf_level"] < level_threshold or aggregated["conf_dept"] < dept_threshold
