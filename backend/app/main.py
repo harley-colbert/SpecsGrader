@@ -31,7 +31,7 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
 
     settings = get_settings()
-    app = FastAPI(title="SpecsGrader", version="4.4.0")
+    app = FastAPI(title="SpecsGrader", version="4.6.0")
     app_state: AppState = get_state()
 
     frontend_dir = Path(__file__).resolve().parents[2] / "frontend"

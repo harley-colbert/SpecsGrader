@@ -5,6 +5,7 @@ import {
   fetchRules,
   saveRules,
   testRules,
+  setActivePane,
   startTraining,
   fetchTrainingStatus,
   cancelTraining,
@@ -39,6 +40,24 @@ let sanityReport = null;
 let sanityLoading = false;
 let evaluationReport = null;
 let evaluationLoading = false;
+let validationErrorMessage = "";
+let validationCompleted = false;
+let validationFile = null;
+let validationSummary = null;
+let validationPreview = [];
+let validationSanityReport = null;
+let validationEvaluationReport = null;
+let validationSanityLoading = false;
+let validationEvaluationLoading = false;
+let validationAccordionOpen = false;
+let validationError = "";
+let rulesEditorOpen = false;
+let rulesDraft = "";
+let rulesDirty = false;
+let rulesModified = false;
+let rulesErrorMessage = "";
+let rulesFocusTest = false;
+let trainingAdvancedOpen = false;
 
 let modelsets = [];
 let modelsetsLoading = false;
@@ -51,6 +70,8 @@ let editModelsetName = "";
 let editModelsetDescription = "";
 let editModelsetTags = "";
 let importFile = null;
+let mode = "use-existing";
+let modelsetLoadTab = "local";
 let trainingParams = {
   oversample_enabled: false,
   oversample_cap_ratio: 0.3,
@@ -272,225 +293,561 @@ function render(state) {
   const phase = trainingStatus?.phase || "";
   const progress = Number(trainingStatus?.progress || 0);
   const progressPercent = Math.round(progress * 100);
+  const isUseExisting = mode === "use-existing";
+  const capabilities = state.capabilities || {};
+  const hasModels = Boolean(capabilities.model);
+  const hasRules = Boolean(capabilities.rules);
+  const hasVector = Boolean(capabilities.vector);
+  const activeModelsetId = state.active_modelset_id;
+  const activeModelsetVersionId = state.active_modelset_version_id;
+  const hasActiveModelset = Boolean(activeModelsetId);
+  const trainingTotalRows = Number(summary?.total_rows || 0);
+  const trainingMissingLabels = Number(summary?.missing_labels || 0);
+  const labeledRows = Math.max(trainingTotalRows - trainingMissingLabels, 0);
+  const hasTrainingData = trainingTotalRows > 0;
+  const trainingDataError = hasTrainingData && labeledRows === 0;
+  const step1Complete = Boolean(modelsetSelectId || activeModelsetId);
+  const step2Complete = hasTrainingData && labeledRows > 0;
+  const step4Complete = trainingStatus?.status === "completed";
+  const trainingInProgress = trainingStatus?.status === "running";
+  const step3Skipped = step4Complete && !rulesModified;
+  const canTrain = step1Complete && step2Complete && !trainingDataError;
+  const canProceedAfterTrain = step4Complete;
+  const step5Complete = validationCompleted;
+  const headlineLevelF1 = Number(trainingStatus?.metrics?.level?.macro_f1 || 0).toFixed(2);
+  const headlineDeptF1 = Number(trainingStatus?.metrics?.dept?.macro_f1 || 0).toFixed(2);
+  const validationTotalRows = Number(validationSummary?.total_rows || 0);
+  const validationMissingLabels = Number(validationSummary?.missing_labels || 0);
+  const validationLabeledRows = Math.max(validationTotalRows - validationMissingLabels, 0);
+  const validationReady = validationTotalRows > 0 && validationLabeledRows > 0;
+  const canValidate = step1Complete && step2Complete && step4Complete;
+  const canValidatePathA = hasActiveModelset && validationReady && hasModels;
+  const readinessLabels = {
+    activeModelset: activeModelsetId ? `Active ModelSet: ${safeString(activeModelsetId)}` : "Active ModelSet: (none)",
+    models: `Models: ${hasModels ? "✅" : "⭕"}`,
+    rules: `Rules: ${hasRules ? "✅" : "⭕"}`,
+    vector: `Vector store: ${hasVector ? "✅" : "⭕"}`,
+    training: `Training data loaded: ${step2Complete ? `✅ (${labeledRows})` : "⭕"}`,
+  };
+  const stepStatus = (index, { complete = false, error = false, skipped = false } = {}) => {
+    if (error) return "error";
+    if (complete) return "completed";
+    if (skipped) return "skipped";
+    const firstIncomplete =
+      !step1Complete
+        ? 1
+        : !step2Complete || trainingDataError
+        ? 2
+        : !step4Complete && !trainingInProgress
+        ? 3
+        : trainingInProgress
+        ? 4
+        : !step5Complete
+        ? 5
+        : 6;
+    return index === firstIncomplete ? "active" : "inactive";
+  };
   rootEl.innerHTML = `
     <h2>Train</h2>
+    <div class="readiness-strip">
+      <span>${readinessLabels.activeModelset} ${activeModelsetId ? "✅" : "⭕"}</span>
+      <span>${readinessLabels.models}</span>
+      <span>${readinessLabels.rules}</span>
+      <span>${readinessLabels.vector}</span>
+      <span>${readinessLabels.training}</span>
+    </div>
     <p>Load a training file, configure rules, train models, and build a vector store.</p>
-    <div class="card modelset-card">
+    <div class="card quickstart-card">
+      <div class="quickstart-header">
+        <h3>What do you want to do?</h3>
+        <p class="muted">Choose a workflow to guide which sections appear below.</p>
+      </div>
+      <div class="quickstart-options">
+        <button class="quickstart-option ${isUseExisting ? "active" : ""}" data-mode="use-existing" type="button">
+          <span class="quickstart-title">Use an existing ModelSet and classify</span>
+          <span class="quickstart-desc">Load a saved .sgm (or pick a local ModelSet version) and go straight to Classify.</span>
+          ${isUseExisting ? `<span class="quickstart-chip">Selected</span>` : ""}
+        </button>
+        <button class="quickstart-option ${!isUseExisting ? "active" : ""}" data-mode="build-update" type="button">
+          <span class="quickstart-title">Build / update a ModelSet (advanced)</span>
+          <span class="quickstart-desc">Load labeled training data, train models, validate, build vector store, then save a new version.</span>
+          ${!isUseExisting ? `<span class="quickstart-chip">Selected</span>` : ""}
+        </button>
+      </div>
+    </div>
+    ${isUseExisting ? `
+    <div data-mode-section="use-existing">
+      <div class="card modelset-card">
       <div class="modelset-header">
-        <h3>Model sets (.sgm)</h3>
+        <h3>Step 1 — Load a ModelSet</h3>
         <p class="modelset-description">
-          Save / load named, versioned ModelSets that bundle trained models, the vector store, and rules.
-          Export / import as a single <code>.sgm</code> file.
+          Load a saved ModelSet to classify immediately. You can also import a <code>.sgm</code> bundle.
         </p>
+        <p class="muted">Training data is only needed if you want to validate models, not to classify with an existing ModelSet.</p>
       </div>
 
-      <div class="modelset-grid">
-        <label class="field modelset-field">
-          <span>Existing ModelSet</span>
-          <select id="modelset-select" ${modelsetsLoading ? "disabled" : ""}>
-            ${renderModelsetSelectOptions()}
-          </select>
-        </label>
-        <label class="field modelset-field">
-          <span>Version</span>
-          <select id="modelset-version-select" ${modelsetsLoading ? "disabled" : ""}>
-            ${renderModelsetVersionOptions()}
-          </select>
-        </label>
-        <div class="field modelset-field">
-          <span>Active in app</span>
-          <div class="chip-row">
-            <span class="chip">${state.active_modelset_id ? state.active_modelset_id : "(none)"}</span>
-            <span class="chip chip-muted">${state.active_modelset_version_id ? state.active_modelset_version_id : "(none)"}</span>
-          </div>
-        </div>
+      <div class="modelset-tabs">
+        <button class="modelset-tab ${modelsetLoadTab === "local" ? "active" : ""}" data-modelset-tab="local" type="button">
+          Local ModelSets
+        </button>
+        <button class="modelset-tab ${modelsetLoadTab === "import" ? "active" : ""}" data-modelset-tab="import" type="button">
+          Import .sgm
+        </button>
       </div>
 
-      <div class="modelset-actions">
-        <button id="modelset-refresh" ${modelsetsLoading ? "disabled" : ""}>${modelsetsLoading ? "Refreshing..." : "Refresh"}</button>
-        <button id="modelset-save" ${modelsetSelectId ? "" : "disabled"}>Save snapshot (new version)</button>
-        <button id="modelset-load" ${modelsetSelectId && modelsetVersionSelectId ? "" : "disabled"}>Load selected version</button>
-        <button id="modelset-export" ${modelsetSelectId && modelsetVersionSelectId ? "" : "disabled"}>Export .sgm</button>
-        <button id="modelset-import" ${importFile ? "" : "disabled"}>Import</button>
-        <button id="modelset-delete-version" class="danger" ${modelsetSelectId && modelsetVersionSelectId ? "" : "disabled"}>Delete version</button>
-        <button id="modelset-delete" class="danger" ${modelsetSelectId ? "" : "disabled"}>Delete ModelSet</button>
-      </div>
-
-      <div class="card-grid modelset-subgrid">
-        <div class="card card-inset modelset-inset">
-          <h4>Create new ModelSet</h4>
-          <div class="param-grid modelset-param-grid">
-            <label class="field">
-              <span>ModelSet ID (optional)</span>
-              <input type="text" id="modelset-new-id" placeholder="e.g. customer_a_risk_v1" value="${safeString(newModelsetId)}" />
-            </label>
-            <label class="field">
-              <span>Name</span>
-              <input type="text" id="modelset-new-name" placeholder="e.g. Customer A – Risk" value="${safeString(newModelsetName)}" />
-            </label>
-            <label class="field">
-              <span>Description</span>
-              <input type="text" id="modelset-new-desc" placeholder="optional" value="${safeString(newModelsetDescription)}" />
-            </label>
-          </div>
-          <div class="rule-actions">
-            <button id="modelset-create">Create</button>
-          </div>
-        </div>
-        <div class="card card-inset modelset-inset">
-          <h4>Edit ModelSet metadata</h4>
-          <div class="param-grid modelset-param-grid">
-            <label class="field">
-              <span>Name</span>
-              <input type="text" id="modelset-edit-name" placeholder="ModelSet name" value="${safeString(editModelsetName)}" />
-            </label>
-            <label class="field">
-              <span>Description</span>
-              <input type="text" id="modelset-edit-desc" placeholder="optional" value="${safeString(editModelsetDescription)}" />
-            </label>
-            <label class="field">
-              <span>Tags (comma-separated)</span>
-              <input type="text" id="modelset-edit-tags" placeholder="e.g. customer, v4" value="${safeString(editModelsetTags)}" />
-            </label>
-          </div>
-          <div class="rule-actions">
-            <button id="modelset-update" ${modelsetSelectId ? "" : "disabled"}>Update metadata</button>
-          </div>
-        </div>
-        <div class="card card-inset modelset-inset">
-          <h4>Import .sgm</h4>
-          <label class="field">
-            <span>Choose .sgm file</span>
-            <input type="file" id="modelset-import-file" accept=".sgm" />
-            ${importFile ? `<small>Selected: ${importFile.name}</small>` : ""}
+      <div class="${modelsetLoadTab === "local" ? "" : "mode-hidden"}">
+        <div class="modelset-grid">
+          <label class="field modelset-field">
+            <span>Existing ModelSet</span>
+            <select id="modelset-select" ${modelsetsLoading ? "disabled" : ""}>
+              ${renderModelsetSelectOptions()}
+            </select>
           </label>
-          <small class="muted">Use Import in the action row above.</small>
+          <label class="field modelset-field">
+            <span>Version</span>
+            <select id="modelset-version-select" ${modelsetsLoading ? "disabled" : ""}>
+              ${renderModelsetVersionOptions()}
+            </select>
+          </label>
+          <div class="field modelset-field">
+            <span>Active in app</span>
+            <div class="chip-row">
+              <span class="chip">${activeModelsetId ? activeModelsetId : "(none)"}</span>
+              <span class="chip chip-muted">${activeModelsetVersionId ? activeModelsetVersionId : "(none)"}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="modelset-actions">
+          <button id="modelset-refresh" ${modelsetsLoading ? "disabled" : ""}>${modelsetsLoading ? "Refreshing..." : "Refresh"}</button>
+          <button id="modelset-load" ${modelsetSelectId && modelsetVersionSelectId ? "" : "disabled"}>Load selected version</button>
+          <button id="modelset-export" ${modelsetSelectId && modelsetVersionSelectId ? "" : "disabled"}>Export .sgm</button>
         </div>
       </div>
+
+      <div class="${modelsetLoadTab === "import" ? "" : "mode-hidden"}">
+        <label class="field">
+          <span>Choose .sgm file</span>
+          <input type="file" id="modelset-import-file" accept=".sgm" />
+          ${importFile ? `<small>Selected: ${importFile.name}</small>` : ""}
+        </label>
+        <div class="modelset-actions">
+          <button id="modelset-import" ${importFile ? "" : "disabled"}>Import & load .sgm</button>
+        </div>
+      </div>
+
+      ${hasActiveModelset
+        ? `
+        <div class="modelset-ready">
+          <div class="modelset-banner">✅ Active ModelSet: ${safeString(activeModelsetId)} / ${safeString(activeModelsetVersionId || "(latest)")}</div>
+          <div class="modelset-summary">
+            <span>Models (level/dept): ${hasModels ? "✅" : "⭕"}</span>
+            <span>Rules: ${hasRules ? "✅" : "⭕"}</span>
+            <span>Vector store: ${hasVector ? "✅" : "⭕"}</span>
+          </div>
+        </div>
+        `
+        : `<p class="muted">No active ModelSet loaded yet.</p>`}
     </div>
-    <div class="card">
-      <label class="field">
-        <span>Training file (uses native OS picker)</span>
-        <input type="file" id="train-file" accept=".csv,.xlsx,.xls" />
-        ${trainingFile ? `<small>Selected: ${trainingFile.name}</small>` : ""}
-      </label>
-      <button id="train-load" ${loading ? "disabled" : ""}>${loading ? "Loading..." : "Load"}</button>
+
+    ${hasActiveModelset
+      ? `
+      <div class="card next-step-card">
+        <h3>Next step</h3>
+        ${hasModels
+          ? `
+          <p>You’re ready to classify using the active ModelSet. Training data is not required for this workflow.</p>
+          <button id="go-classify" class="primary">Go to Classify</button>
+          `
+          : hasRules
+          ? `
+          <p>Only rules are available in this ModelSet. You can still classify using rules.</p>
+          <button id="go-classify" class="primary">Go to Classify (rules-only)</button>
+          `
+          : `
+          <p>This ModelSet has no trained models. You can still use rules (if present), or switch to the Build/Update workflow to train models.</p>
+          <button id="switch-build-update">Switch to Build / update ModelSet</button>
+          `}
+      </div>
+      `
+      : ""}
+
+    <div class="card validation-accordion">
+      <button class="accordion-toggle" id="validation-toggle" type="button">
+        Optional — Validate this ModelSet
+      </button>
+      ${validationAccordionOpen
+        ? `
+        <div class="accordion-body">
+          <p class="muted">To validate this ModelSet, load a labeled dataset. Validation does not change the ModelSet; it only computes metrics.</p>
+          <label class="field">
+            <span>Validation dataset</span>
+            <input type="file" id="validation-file" accept=".csv,.xlsx,.xls" />
+            ${validationFile ? `<small>Selected: ${validationFile.name}</small>` : ""}
+          </label>
+          <button id="validation-load" ${validationFile ? "" : "disabled"}>Load validation dataset</button>
+          ${validationSummary
+            ? `
+            <div class="card-grid">
+              <div class="card">
+                <h4>Summary</h4>
+                <ul class="stats">
+                  <li>Total rows: ${validationSummary.total_rows}</li>
+                  <li>Labeled rows: ${validationLabeledRows}</li>
+                  <li>Missing risk text: ${validationSummary.missing_risk_text}</li>
+                  <li>Missing labels: ${validationSummary.missing_labels}</li>
+                  <li>Invalid levels: ${validationSummary.invalid_levels}</li>
+                  <li>Invalid departments: ${validationSummary.invalid_departments}</li>
+                </ul>
+              </div>
+              <div class="card">
+                <h4>Preview</h4>
+                ${validationPreview.length ? renderPreview(validationPreview) : `<p>No preview available.</p>`}
+              </div>
+            </div>
+            `
+            : `<p class="muted">No validation dataset loaded (optional). Load one to compute metrics for this ModelSet.</p>`}
+          <div class="rule-actions">
+            <button id="validation-sanity-run" ${validationSanityLoading || !canValidatePathA ? "disabled" : ""}>
+              ${validationSanityLoading ? "Running..." : "Run sanity check (fast)"}
+            </button>
+            <button id="validation-evaluate-run" ${validationEvaluationLoading || !canValidatePathA ? "disabled" : ""}>
+              ${validationEvaluationLoading ? "Running..." : "Run holdout evaluation"}
+            </button>
+          </div>
+          ${validationError ? `<div class="train-error">${safeString(validationError)}</div>` : ""}
+          <div class="validation-results">
+            <div class="card">
+              <h4>Sanity check</h4>
+              ${validationSanityReport ? renderSanityReport(validationSanityReport) : `<p class="muted">No sanity report yet.</p>`}
+            </div>
+            <div class="card">
+              <h4>Holdout evaluation</h4>
+              ${validationEvaluationReport ? renderEvaluateReport(validationEvaluationReport) : `<p class="muted">No evaluation report yet.</p>`}
+            </div>
+          </div>
+        </div>
+        `
+        : ""}
     </div>
-    <div class="card-grid">
-      <div class="card">
-        <h3>Summary</h3>
-        ${summary ? `
-          <ul class="stats">
-            <li>Total rows: ${summary.total_rows}</li>
-            <li>Missing risk text: ${summary.missing_risk_text}</li>
-            <li>Missing labels: ${summary.missing_labels}</li>
-            <li>Invalid levels: ${summary.invalid_levels}</li>
-            <li>Invalid departments: ${summary.invalid_departments}</li>
-          </ul>
-        ` : `<p>No dataset loaded.</p>`}
-      </div>
-      <div class="card">
-        <h3>Preview</h3>
-        ${preview.length ? renderPreview(preview) : `<p>No preview available.</p>`}
-      </div>
     </div>
-    <div class="card">
-      <h3>Training parameters</h3>
-      <div class="param-grid">
-        <label class="field">
-          <span>Oversample enabled</span>
-          <input type="checkbox" id="oversample-enabled" ${trainingParams.oversample_enabled ? "checked" : ""} />
-        </label>
-        <label class="field">
-          <span>Oversample cap ratio</span>
-          <input type="number" step="0.1" min="0" max="1" id="oversample-cap" value="${trainingParams.oversample_cap_ratio}" />
-        </label>
-        <label class="field">
-          <span>Min recall per class</span>
-          <input type="number" step="0.05" min="0" max="1" id="min-recall" value="${trainingParams.min_recall_per_class}" />
-        </label>
-        <label class="field">
-          <span>Calibration method</span>
-          <select id="calibration-method">
-            <option value="sigmoid" ${trainingParams.calibration_method === "sigmoid" ? "selected" : ""}>sigmoid</option>
-            <option value="isotonic" ${trainingParams.calibration_method === "isotonic" ? "selected" : ""}>isotonic</option>
-          </select>
-        </label>
+    ` : ""}
+    ${isUseExisting ? "" : `
+    <div data-mode-section="build-update">
+      ${step1Complete ? "" : `<p class="muted">No active ModelSet. Load one to classify, or switch to the Build/Update workflow to create one.</p>`}
+      <div class="stepper">
+        <button class="stepper-step ${stepStatus(1, { complete: step1Complete })}" data-step-target="step-modelset">
+          <span class="stepper-index">1</span>
+          <span>ModelSet</span>
+        </button>
+        <button class="stepper-step ${stepStatus(2, { complete: step2Complete, error: trainingDataError })}" data-step-target="step-training-data">
+          <span class="stepper-index">2</span>
+          <span>Training data</span>
+        </button>
+        <button class="stepper-step ${stepStatus(3, { complete: rulesModified, skipped: step3Skipped })}" data-step-target="step-rules">
+          <span class="stepper-index">3</span>
+          <span>Rules</span>
+        </button>
+        <button class="stepper-step ${stepStatus(4, { complete: step4Complete })}" data-step-target="step-train">
+          <span class="stepper-index">4</span>
+          <span>Train</span>
+        </button>
+        <button class="stepper-step ${stepStatus(5, { complete: step5Complete, error: Boolean(validationErrorMessage) })}" data-step-target="step-validate">
+          <span class="stepper-index">5</span>
+          <span>Validate</span>
+        </button>
+        <button class="stepper-step ${stepStatus(6)}" data-step-target="step-vector">
+          <span class="stepper-index">6</span>
+          <span>Vector store</span>
+        </button>
+        <button class="stepper-step ${stepStatus(7)}" data-step-target="step-save">
+          <span class="stepper-index">7</span>
+          <span>Save</span>
+        </button>
       </div>
-      <div class="train-actions">
-        <button id="train-start" ${status === "running" ? "disabled" : ""}>Train</button>
-        <button id="train-cancel" ${status === "running" ? "" : "disabled"}>Cancel</button>
-        <span class="chip">Status: ${status}</span>
-        ${phase ? `<span class="chip chip-muted">Phase: ${phase}</span>` : ""}
-        <span class="chip chip-muted">${progressPercent}%</span>
+
+      <div class="card" id="step-modelset">
+        <h3>Step 1 — Select or create ModelSet</h3>
+        <p class="muted">Choose which ModelSet you want to train and save new versions into.</p>
+        <div class="modelset-grid">
+          <label class="field modelset-field">
+            <span>Existing ModelSet</span>
+            <select id="modelset-select" ${modelsetsLoading ? "disabled" : ""}>
+              ${renderModelsetSelectOptions()}
+            </select>
+          </label>
+          <label class="field modelset-field">
+            <span>Target version (optional)</span>
+            <select id="modelset-version-select" ${modelsetsLoading ? "disabled" : ""}>
+              ${renderModelsetVersionOptions()}
+            </select>
+          </label>
+        </div>
+        <div class="modelset-actions">
+          <button id="modelset-refresh" ${modelsetsLoading ? "disabled" : ""}>${modelsetsLoading ? "Refreshing..." : "Refresh"}</button>
+        </div>
+        <div class="card-grid modelset-subgrid">
+          <div class="card card-inset modelset-inset">
+            <h4>Create new ModelSet</h4>
+            <div class="param-grid modelset-param-grid">
+              <label class="field">
+                <span>ModelSet ID (optional)</span>
+                <input type="text" id="modelset-new-id" placeholder="e.g. customer_a_risk_v1" value="${safeString(newModelsetId)}" />
+              </label>
+              <label class="field">
+                <span>Name</span>
+                <input type="text" id="modelset-new-name" placeholder="e.g. Customer A – Risk" value="${safeString(newModelsetName)}" />
+              </label>
+              <label class="field">
+                <span>Description</span>
+                <input type="text" id="modelset-new-desc" placeholder="optional" value="${safeString(newModelsetDescription)}" />
+              </label>
+            </div>
+            <div class="rule-actions">
+              <button id="modelset-create">Create</button>
+            </div>
+          </div>
+        </div>
+        ${step1Complete ? `<p class="step-status success">✅ ModelSet selected.</p>` : `<p class="step-status">Select or create a ModelSet to continue.</p>`}
       </div>
-      <div class="progress-row">
-        <progress class="progress" max="1" value="${progress}"></progress>
-        <div class="train-status">
-          ${trainingStatus?.message ? `<div><strong>${safeString(trainingStatus.message)}</strong></div>` : ""}
-          <div class="muted">
-            ${trainingStatus?.started_at ? `Started: ${formatTs(trainingStatus.started_at)} (${formatSecondsSince(trainingStatus.started_at)} elapsed)` : ""}
-            ${trainingStatus?.finished_at ? ` | Finished: ${formatTs(trainingStatus.finished_at)}` : ""}
-            ${trainingStatus?.last_updated_at ? ` | Last update: ${formatTs(trainingStatus.last_updated_at)}` : ""}
+
+      <div class="card" id="step-training-data">
+        <h3>Step 2 — Load labeled training data</h3>
+        <p class="muted">Load labeled examples so the system can learn to predict risk level and department.</p>
+        <label class="field">
+          <span>Training file (uses native OS picker)</span>
+          <input type="file" id="train-file" accept=".csv,.xlsx,.xls" />
+          ${trainingFile ? `<small>Selected: ${trainingFile.name}</small>` : ""}
+        </label>
+        <button id="train-load" ${loading ? "disabled" : ""}>${loading ? "Loading..." : "Load training data"}</button>
+        <div class="card-grid">
+          <div class="card">
+            <h4>Summary</h4>
+            ${summary ? `
+              <ul class="stats">
+                <li>Total rows: ${summary.total_rows}</li>
+                <li>Labeled rows: ${labeledRows}</li>
+                <li>Missing risk text: ${summary.missing_risk_text}</li>
+                <li>Missing labels: ${summary.missing_labels}</li>
+                <li>Invalid levels: ${summary.invalid_levels}</li>
+                <li>Invalid departments: ${summary.invalid_departments}</li>
+              </ul>
+            ` : `<p>No dataset loaded.</p>`}
+          </div>
+          <div class="card">
+            <h4>Preview</h4>
+            ${preview.length ? renderPreview(preview) : `<p>No preview available.</p>`}
+          </div>
+        </div>
+        ${trainingDataError
+          ? `
+        <div class="train-error">
+            We found data rows but no labels in columns F and G starting at row 5. Please ensure the file includes labeled rows with valid risk level and department values.
+          </div>
+          `
+          : step2Complete
+          ? `<p class="step-status success">✅ Labeled training data ready.</p>`
+          : `<p class="step-status">Load labeled rows to continue.</p>`}
+      </div>
+
+      <div class="card" id="step-rules">
+        <h3>Step 3 — Rules (optional)</h3>
+        <p class="muted">Define rule-based overrides (e.g., keywords) that complement the machine learning model.</p>
+        <p class="step-status">${rulesModified ? "✅ Rules status: Modified" : "Rules status: Default rules loaded"}</p>
+        <div class="rule-actions">
+          <button id="rules-edit-toggle">${rulesEditorOpen ? "Close editor" : "Edit rules"}</button>
+          <button id="rules-test-toggle">${rulesEditorOpen ? "Test a phrase" : "Test a phrase"}</button>
+        </div>
+        ${rulesEditorOpen
+          ? `
+          <div class="rules-editor">
+            <div class="field">
+              <textarea id="rules-json" rows="10" class="code-area">${safeString(rulesDraft || "")}</textarea>
+            </div>
+            ${rulesErrorMessage ? `<div class="train-error">${safeString(rulesErrorMessage)}</div>` : ""}
+            <div class="rule-actions">
+              <button id="rules-save">Save rules</button>
+              <button id="rules-revert" class="ghost">Revert</button>
+            </div>
+            <div class="rule-actions">
+              <input type="text" id="rule-test-text" placeholder="Enter risk text to test" />
+              <button id="rules-test">Test rule</button>
+            </div>
+            <div class="rule-result">${renderRuleResult()}</div>
+          </div>
+          `
+          : ""}
+      </div>
+
+      <div class="card" id="step-train">
+        <h3>Step 4 — Train models</h3>
+        <p class="muted">Train ML models for risk level and department using the loaded dataset.</p>
+        <div class="train-actions">
+        <button id="train-start" ${status === "running" || !canTrain ? "disabled" : ""}>Train models</button>
+          <button id="train-cancel" ${status === "running" ? "" : "disabled"}>Cancel</button>
+          <span class="chip">Status: ${status}</span>
+          ${phase ? `<span class="chip chip-muted">Phase: ${phase}</span>` : ""}
+          <span class="chip chip-muted">${progressPercent}%</span>
+        </div>
+        <button id="train-advanced-toggle" class="ghost">${trainingAdvancedOpen ? "Hide advanced settings" : "Show advanced settings"}</button>
+        ${trainingAdvancedOpen
+          ? `
+          <div class="advanced-settings">
+            <div class="param-grid">
+              <label class="field">
+                <span>Oversample enabled</span>
+                <input type="checkbox" id="oversample-enabled" ${trainingParams.oversample_enabled ? "checked" : ""} />
+              </label>
+              <label class="field">
+                <span>Oversample cap ratio</span>
+                <input type="number" step="0.1" min="0" max="1" id="oversample-cap" value="${trainingParams.oversample_cap_ratio}" />
+              </label>
+              <label class="field">
+                <span>Min recall per class</span>
+                <input type="number" step="0.05" min="0" max="1" id="min-recall" value="${trainingParams.min_recall_per_class}" />
+              </label>
+              <label class="field">
+                <span>Calibration method</span>
+                <select id="calibration-method">
+                  <option value="sigmoid" ${trainingParams.calibration_method === "sigmoid" ? "selected" : ""}>sigmoid</option>
+                  <option value="isotonic" ${trainingParams.calibration_method === "isotonic" ? "selected" : ""}>isotonic</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          `
+          : ""}
+        <div class="progress-row">
+          <progress class="progress" max="1" value="${progress}"></progress>
+          <div class="train-status">
+            ${trainingStatus?.message ? `<div><strong>${safeString(trainingStatus.message)}</strong></div>` : ""}
+            <div class="muted">
+              ${trainingStatus?.started_at ? `Started: ${formatTs(trainingStatus.started_at)} (${formatSecondsSince(trainingStatus.started_at)} elapsed)` : ""}
+              ${trainingStatus?.finished_at ? ` | Finished: ${formatTs(trainingStatus.finished_at)}` : ""}
+              ${trainingStatus?.last_updated_at ? ` | Last update: ${formatTs(trainingStatus.last_updated_at)}` : ""}
+            </div>
+          </div>
+        </div>
+        ${trainingStatus?.error ? `<div class="train-error">Error: ${safeString(trainingStatus.error)}</div>` : ""}
+        ${renderTrainingDetails(trainingStatus)}
+        ${trainingMetrics ? renderMetrics(trainingMetrics) : ""}
+        ${step4Complete ? `<p class="step-status success">✅ Training complete. Level macro F1 ${headlineLevelF1} | Dept macro F1 ${headlineDeptF1}. Next: Validate.</p>` : ""}
+      </div>
+
+      <div class="card" id="step-validate">
+        <h3>Step 5 — Validate</h3>
+        <p class="muted">Check how the models perform on your labeled data.</p>
+        ${canValidate
+          ? ""
+          : `<p class="muted">Load labeled training data in Step 2 and train models in Step 4 to enable validation.</p>`}
+        <div class="rule-actions">
+          <button id="sanity-run" ${sanityLoading || !canValidate ? "disabled" : ""}>
+            ${sanityLoading ? "Running..." : "Run sanity check (fast)"}
+          </button>
+          <button id="evaluate-run" ${evaluationLoading || !canValidate ? "disabled" : ""}>
+            ${evaluationLoading ? "Running..." : "Run holdout evaluation (slower)"}
+          </button>
+        </div>
+        ${validationErrorMessage ? `<div class="train-error">${safeString(validationErrorMessage)}</div>` : ""}
+        <div class="validation-results">
+          <div class="card">
+            <h4>Sanity check</h4>
+            ${sanityReport ? renderSanityReport(sanityReport) : `<p class="muted">No sanity report yet.</p>`}
+          </div>
+          <div class="card">
+            <h4>Holdout evaluation</h4>
+            ${evaluationReport ? renderEvaluateReport(evaluationReport) : `<p class="muted">No evaluation report yet.</p>`}
           </div>
         </div>
       </div>
-      ${trainingStatus?.error ? `<div class="train-error">Error: ${safeString(trainingStatus.error)}</div>` : ""}
-      ${renderTrainingDetails(trainingStatus)}
-      ${trainingMetrics ? renderMetrics(trainingMetrics) : ""}
-    </div>
-    <div class="card">
-      <h3>Sanity check (model-only)</h3>
-      <p>Validate the trained model against labeled training rows.</p>
-      <div class="rule-actions">
-        <button id="sanity-run" ${sanityLoading ? "disabled" : ""}>
-          ${sanityLoading ? "Running..." : "Run sanity check"}
-        </button>
-        ${sanityReport
-          ? `<span class="chip chip-muted">Rows: ${sanityReport.n_rows ?? 0}</span>`
-          : ""}
-      </div>
-      ${sanityReport ? renderSanityReport(sanityReport) : `<p class="muted">No sanity report yet.</p>`}
-    </div>
-    <div class="card">
-      <h3>Evaluate (holdout metrics)</h3>
-      <p>Measure model/rules/vector/ensemble metrics on a holdout split.</p>
-      <div class="rule-actions">
-        <button id="evaluate-run" ${evaluationLoading ? "disabled" : ""}>
-          ${evaluationLoading ? "Running..." : "Run evaluation"}
-        </button>
-        ${evaluationReport
-          ? `<span class="chip chip-muted">Rows: ${evaluationReport.n_rows ?? 0}</span>`
-          : ""}
-      </div>
-      ${evaluationReport ? renderEvaluateReport(evaluationReport) : `<p class="muted">No evaluation report yet.</p>`}
-    </div>
-    <div class="card">
-      <h3>Vector store</h3>
-      <p>Build embeddings and ANN index for vector-based predictions.</p>
-      <div class="rule-actions">
-        <button id="vector-build">Build vector store</button>
-        <span class="chip">${vectorBuildStatus || "Not built"}</span>
-      </div>
-    </div>
-    <div class="card">
-      <h3>Rules configuration</h3>
-      <p>Edit JSON rules per department. Test a sample risk text below.</p>
-      <div class="field">
-        <textarea id="rules-json" rows="10" class="code-area">${rulesConfig ? JSON.stringify(rulesConfig, null, 2) : ""}</textarea>
-      </div>
-      <div class="rule-actions">
-        <button id="rules-save">Save rules</button>
-        <input type="text" id="rule-test-text" placeholder="Enter risk text to test" />
-        <button id="rules-test">Test rule</button>
-      </div>
-      <div class="rule-result">${renderRuleResult()}</div>
-    </div>
 
+      <div class="card placeholder-card" id="step-vector">
+        <h3>Step 6 — Vector store</h3>
+        <p class="muted">Build a similarity index so new text can be compared to known examples.</p>
+        <button disabled>Build vector store</button>
+      </div>
+
+      <div class="card placeholder-card" id="step-save">
+        <h3>Step 7 — Save snapshot / Export</h3>
+        <p class="muted">Save everything to a new ModelSet version you can reuse in the Classify tab.</p>
+        <button disabled>Save snapshot</button>
+      </div>
+    </div>
+    `}
   `;
+
+  const modeOptions = Array.from(rootEl.querySelectorAll("[data-mode]"));
+  modeOptions.forEach((button) => {
+    button.addEventListener("click", () => {
+      const nextMode = button.dataset.mode;
+      if (!nextMode || nextMode === mode) return;
+      mode = nextMode;
+      render(state);
+    });
+  });
+
+  const tabOptions = Array.from(rootEl.querySelectorAll("[data-modelset-tab]"));
+  tabOptions.forEach((button) => {
+    button.addEventListener("click", () => {
+      const nextTab = button.dataset.modelsetTab;
+      if (!nextTab || nextTab === modelsetLoadTab) return;
+      modelsetLoadTab = nextTab;
+      render(state);
+    });
+  });
+
+  const goClassifyBtn = rootEl.querySelector("#go-classify");
+  if (goClassifyBtn) {
+    goClassifyBtn.addEventListener("click", async () => {
+      const navButton = document.querySelector('[data-pane="classify"]');
+      if (navButton instanceof HTMLElement) {
+        navButton.click();
+        return;
+      }
+      try {
+        await setActivePane("classify");
+        const nextState = await syncState();
+        render(nextState || state);
+      } catch (error) {
+        alert(error.message);
+      }
+    });
+  }
+
+  const switchBuildBtn = rootEl.querySelector("#switch-build-update");
+  if (switchBuildBtn) {
+    switchBuildBtn.addEventListener("click", () => {
+      mode = "build-update";
+      render(state);
+    });
+  }
+
+  const validationToggle = rootEl.querySelector("#validation-toggle");
+  if (validationToggle) {
+    validationToggle.addEventListener("click", () => {
+      validationAccordionOpen = !validationAccordionOpen;
+      render(state);
+    });
+  }
+
+  const stepperButtons = Array.from(rootEl.querySelectorAll(".stepper-step"));
+  stepperButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const targetId = button.dataset.stepTarget;
+      if (!targetId) return;
+      const target = rootEl.querySelector(`#${targetId}`);
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    });
+  });
 
   const loadBtn = rootEl.querySelector("#train-load");
   const fileInput = rootEl.querySelector("#train-file");
+  const validationFileInput = rootEl.querySelector("#validation-file");
+  const validationLoadBtn = rootEl.querySelector("#validation-load");
+  const validationSanityBtn = rootEl.querySelector("#validation-sanity-run");
+  const validationEvaluateBtn = rootEl.querySelector("#validation-evaluate-run");
   if (fileInput) {
     fileInput.addEventListener("change", () => {
       trainingFile = fileInput.files?.[0] || null;
@@ -509,11 +866,44 @@ function render(state) {
         summary = await loadDataset("train", trainingFile);
         const previewResp = await fetchPreview("train", 10, 0);
         preview = previewResp.rows || [];
+        sanityReport = null;
+        evaluationReport = null;
+        validationCompleted = false;
+        validationErrorMessage = "";
       } catch (error) {
         alert(error.message);
       } finally {
         loading = false;
         trainingFile = null;
+        render(state);
+      }
+    });
+  }
+
+  if (validationFileInput) {
+    validationFileInput.addEventListener("change", () => {
+      validationFile = validationFileInput.files?.[0] || null;
+      render(state);
+    });
+  }
+
+  if (validationLoadBtn) {
+    validationLoadBtn.addEventListener("click", async () => {
+      if (!validationFile) {
+        alert("Please select a validation file.");
+        return;
+      }
+      try {
+        validationSummary = await loadDataset("train", validationFile);
+        const previewResp = await fetchPreview("train", 10, 0);
+        validationPreview = previewResp.rows || [];
+        validationFile = null;
+        validationError = "";
+        validationSanityReport = null;
+        validationEvaluationReport = null;
+        render(state);
+      } catch (error) {
+        validationError = error.message;
         render(state);
       }
     });
@@ -582,11 +972,13 @@ function render(state) {
   if (sanityBtn) {
     sanityBtn.addEventListener("click", async () => {
       sanityLoading = true;
+      validationErrorMessage = "";
       render(state);
       try {
         sanityReport = await runSanityCheck();
+        validationCompleted = true;
       } catch (error) {
-        alert(error.message);
+        validationErrorMessage = error.message;
       } finally {
         sanityLoading = false;
         render(state);
@@ -597,13 +989,47 @@ function render(state) {
   if (evaluateBtn) {
     evaluateBtn.addEventListener("click", async () => {
       evaluationLoading = true;
+      validationErrorMessage = "";
       render(state);
       try {
         evaluationReport = await runEvaluate();
+        validationCompleted = true;
       } catch (error) {
-        alert(error.message);
+        validationErrorMessage = error.message;
       } finally {
         evaluationLoading = false;
+        render(state);
+      }
+    });
+  }
+
+  if (validationSanityBtn) {
+    validationSanityBtn.addEventListener("click", async () => {
+      validationSanityLoading = true;
+      validationError = "";
+      render(state);
+      try {
+        validationSanityReport = await runSanityCheck();
+      } catch (error) {
+        validationError = error.message;
+      } finally {
+        validationSanityLoading = false;
+        render(state);
+      }
+    });
+  }
+
+  if (validationEvaluateBtn) {
+    validationEvaluateBtn.addEventListener("click", async () => {
+      validationEvaluationLoading = true;
+      validationError = "";
+      render(state);
+      try {
+        validationEvaluationReport = await runEvaluate();
+      } catch (error) {
+        validationError = error.message;
+      } finally {
+        validationEvaluationLoading = false;
         render(state);
       }
     });
@@ -613,16 +1039,66 @@ function render(state) {
   const rulesTextArea = rootEl.querySelector("#rules-json");
   const testBtn = rootEl.querySelector("#rules-test");
   const testInput = rootEl.querySelector("#rule-test-text");
+  const rulesEditToggle = rootEl.querySelector("#rules-edit-toggle");
+  const rulesTestToggle = rootEl.querySelector("#rules-test-toggle");
+  const rulesRevertBtn = rootEl.querySelector("#rules-revert");
+  const trainAdvancedToggle = rootEl.querySelector("#train-advanced-toggle");
+
+  if (rulesEditToggle) {
+    rulesEditToggle.addEventListener("click", () => {
+      rulesEditorOpen = !rulesEditorOpen;
+      rulesFocusTest = false;
+      if (rulesEditorOpen) {
+        rulesDraft = rulesConfig ? JSON.stringify(rulesConfig, null, 2) : "";
+        rulesDirty = false;
+        rulesErrorMessage = "";
+      }
+      render(state);
+    });
+  }
+
+  if (rulesTestToggle) {
+    rulesTestToggle.addEventListener("click", () => {
+      rulesEditorOpen = true;
+      rulesFocusTest = true;
+      rulesDraft = rulesConfig ? JSON.stringify(rulesConfig, null, 2) : "";
+      rulesDirty = false;
+      rulesErrorMessage = "";
+      render(state);
+    });
+  }
 
   if (saveBtn && rulesTextArea) {
     saveBtn.addEventListener("click", async () => {
       try {
         const parsed = JSON.parse(rulesTextArea.value);
         rulesConfig = await saveRules(parsed);
+        rulesModified = true;
+        rulesDirty = false;
+        rulesErrorMessage = "";
+        rulesDraft = JSON.stringify(rulesConfig, null, 2);
         alert("Rules saved");
+        render(state);
       } catch (error) {
-        alert(error.message);
+        rulesErrorMessage = error.message;
+        render(state);
       }
+    });
+  }
+
+  if (rulesTextArea) {
+    rulesTextArea.addEventListener("input", () => {
+      rulesDraft = rulesTextArea.value;
+      rulesDirty = true;
+    });
+  }
+
+  if (rulesRevertBtn) {
+    rulesRevertBtn.addEventListener("click", () => {
+      rulesDraft = rulesConfig ? JSON.stringify(rulesConfig, null, 2) : "";
+      rulesDirty = false;
+      rulesErrorMessage = "";
+      render(state);
     });
   }
 
@@ -633,8 +1109,21 @@ function render(state) {
         testResult = await testRules(testInput.value || "", parsed);
         render(state);
       } catch (error) {
-        alert(error.message);
+        rulesErrorMessage = error.message;
+        render(state);
       }
+    });
+  }
+
+  if (rulesFocusTest && testInput) {
+    testInput.focus();
+    rulesFocusTest = false;
+  }
+
+  if (trainAdvancedToggle) {
+    trainAdvancedToggle.addEventListener("click", () => {
+      trainingAdvancedOpen = !trainingAdvancedOpen;
+      render(state);
     });
   }
 
@@ -715,6 +1204,11 @@ function render(state) {
           console.error("Failed to fetch rules", error);
           rulesConfig = null;
         }
+        rulesEditorOpen = false;
+        rulesDraft = rulesConfig ? JSON.stringify(rulesConfig, null, 2) : "";
+        rulesDirty = false;
+        rulesModified = false;
+        rulesErrorMessage = "";
         const loadedState = await syncState();
         const dataset = loadedState?.training_dataset || null;
         summary = dataset?.summary || null;
@@ -927,6 +1421,17 @@ function render(state) {
           modelsetSelectId = resp.modelset_id;
           modelsetVersionSelectId = resp.version_id || "";
         }
+        try {
+          rulesConfig = await fetchRules();
+        } catch (error) {
+          console.error("Failed to fetch rules", error);
+          rulesConfig = null;
+        }
+        rulesEditorOpen = false;
+        rulesDraft = rulesConfig ? JSON.stringify(rulesConfig, null, 2) : "";
+        rulesDirty = false;
+        rulesModified = false;
+        rulesErrorMessage = "";
         render(lastState);
         alert("Imported ModelSet.");
       } catch (error) {
@@ -1088,9 +1593,14 @@ export default {
     containerEl.appendChild(rootEl);
     try {
       rulesConfig = await fetchRules();
+      rulesDraft = rulesConfig ? JSON.stringify(rulesConfig, null, 2) : "";
+      rulesModified = false;
+      rulesDirty = false;
+      rulesErrorMessage = "";
     } catch (error) {
       console.error("Failed to fetch rules", error);
       rulesConfig = null;
+      rulesDraft = "";
     }
 
     try {
@@ -1131,6 +1641,14 @@ export default {
     loading = false;
     trainingFile = null;
     testResult = null;
+    rulesConfig = null;
+    rulesEditorOpen = false;
+    rulesDraft = "";
+    rulesDirty = false;
+    rulesModified = false;
+    rulesErrorMessage = "";
+    rulesFocusTest = false;
+    trainingAdvancedOpen = false;
     trainingStatus = null;
     trainingMetrics = null;
     vectorBuildStatus = null;
@@ -1138,5 +1656,16 @@ export default {
     sanityLoading = false;
     evaluationReport = null;
     evaluationLoading = false;
+    validationErrorMessage = "";
+    validationCompleted = false;
+    validationFile = null;
+    validationSummary = null;
+    validationPreview = [];
+    validationSanityReport = null;
+    validationEvaluationReport = null;
+    validationSanityLoading = false;
+    validationEvaluationLoading = false;
+    validationAccordionOpen = false;
+    validationError = "";
   },
 };

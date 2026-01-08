@@ -1,0 +1,50 @@
+[
+  {
+    "phase": 0,
+    "name": "Baseline and Backup",
+    "status": "success",
+    "notes": "Baseline app run and pytest log captured in docs/upgrade_v4.6/phase0_summary.md."
+  },
+  {
+    "phase": 1,
+    "name": "Quick Start Mode Selector",
+    "status": "success",
+    "notes": "Quick Start selector implemented; documented in docs/upgrade_v4.6/phase1_summary.md."
+  },
+  {
+    "phase": 2,
+    "name": "Path A (Load ModelSet & Classify)",
+    "status": "success",
+    "notes": "Path A flow updates documented in docs/upgrade_v4.6/phase2_summary.md."
+  },
+  {
+    "phase": 3,
+    "name": "Path B Stepper (Build/Update)",
+    "status": "success",
+    "notes": "Path B stepper updates documented in docs/upgrade_v4.6/phase3_summary.md."
+  },
+  {
+    "phase": 4,
+    "name": "Validation Refactor",
+    "status": "success",
+    "notes": "Validation refactor documented in docs/upgrade_v4.6/phase4_summary.md."
+  },
+  {
+    "phase": 5,
+    "name": "Readiness Strip & Microcopy",
+    "status": "success",
+    "notes": "Readiness strip and microcopy documented in docs/upgrade_v4.6/phase5_summary.md."
+  },
+  {
+    "phase": 6,
+    "name": "QA, Usability, Regression",
+    "status": "success",
+    "notes": "QA documentation captured in docs/upgrade_v4.6/phase6_summary.md."
+  },
+  {
+    "phase": 7,
+    "name": "Release and Versioning",
+    "status": "success",
+    "notes": "Version updates, changelog, upgrade guide, zip archive, and tag recorded in docs/upgrade_v4.6/phase7_summary.md."
+  }
+]
