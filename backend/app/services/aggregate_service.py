@@ -43,6 +43,7 @@ def _build_trace_evidence(method_outputs: Dict[str, Dict[str, object]]) -> Dict[
     rules_output = method_outputs.get("rules") or {}
     model_output = method_outputs.get("model") or {}
     vector_output = method_outputs.get("vector") or {}
+    deep_output = method_outputs.get("deep") or {}
     llm_output = method_outputs.get("llm") or {}
     vector_neighbors = vector_output.get("top_neighbors") or vector_output.get("neighbors")
     if isinstance(vector_neighbors, list):
@@ -63,6 +64,15 @@ def _build_trace_evidence(method_outputs: Dict[str, Dict[str, object]]) -> Dict[
             "neighbors": vector_neighbors,
             "top_similarity": vector_output.get("top_similarity"),
             "margin": vector_output.get("margin"),
+            "vote_conf_level": vector_output.get("vote_conf_level"),
+            "vote_conf_dept": vector_output.get("vote_conf_dept"),
+        },
+        "deep": {
+            "available": deep_output.get("available"),
+            "level_pred": deep_output.get("level_pred"),
+            "dept_pred": deep_output.get("dept_pred"),
+            "level_conf": deep_output.get("level_conf"),
+            "dept_conf": deep_output.get("dept_conf"),
         },
         "llm": {
             "reason": llm_output.get("reason"),
@@ -87,12 +97,20 @@ def evaluate_policy(policy: Dict[str, Any], method_outputs: Dict[str, Dict[str, 
     rules_output = method_outputs.get("rules") or {}
     model_output = method_outputs.get("model") or {}
     vector_output = method_outputs.get("vector") or {}
+    deep_output = method_outputs.get("deep") or {}
     llm_output = method_outputs.get("llm") or {}
 
     model_level_conf = float(model_output.get("level_conf") or 0.0)
     model_dept_conf = float(model_output.get("dept_conf") or 0.0)
     vector_similarity = float(vector_output.get("top_similarity") or 0.0)
     vector_margin = float(vector_output.get("margin") or 0.0)
+    vector_vote_level = vector_output.get("vote_conf_level")
+    vector_vote_dept = vector_output.get("vote_conf_dept")
+    vector_vote_available = vector_vote_level is not None and vector_vote_dept is not None
+    if vector_vote_available:
+        vector_vote_min = min(float(vector_vote_level or 0.0), float(vector_vote_dept or 0.0))
+    else:
+        vector_vote_min = 0.0
 
     for layer in resolved_policy.get("layers", []):
         layer_type = layer.get("type")
@@ -144,14 +162,17 @@ def evaluate_policy(policy: Dict[str, Any], method_outputs: Dict[str, Dict[str, 
                 and model_output.get("level_pred")
                 and model_output.get("level_pred") == vector_output.get("level_pred")
             )
-            if model_vector_agree and vector_similarity >= min_similarity:
+            vector_signal_ok = vector_vote_min >= min_similarity if vector_vote_available else vector_similarity >= min_similarity
+            if model_vector_agree and vector_signal_ok:
                 trace["winner"] = layer_id
                 _trace_step(trace, layer_id, True)
+                vector_level_conf = float(vector_vote_level) if vector_vote_level is not None else float(vector_output.get("level_conf") or 0.0)
+                vector_dept_conf = float(vector_vote_dept) if vector_vote_dept is not None else float(vector_output.get("dept_conf") or 0.0)
                 return {
                     "pred_level": model_output.get("level_pred"),
                     "pred_dept": model_output.get("dept_pred"),
-                    "conf_level": max(model_level_conf, float(vector_output.get("level_conf") or 0.0)),
-                    "conf_dept": max(model_dept_conf, float(vector_output.get("dept_conf") or 0.0)),
+                    "conf_level": max(model_level_conf, vector_level_conf),
+                    "conf_dept": max(model_dept_conf, vector_dept_conf),
                     "trace": trace,
                 }
             _trace_step(trace, layer_id, False)
@@ -160,10 +181,13 @@ def evaluate_policy(policy: Dict[str, Any], method_outputs: Dict[str, Dict[str, 
         if layer_type == "vector_confidence":
             min_similarity = float(layer.get("min_similarity") or 0.0)
             min_margin = float(layer.get("min_margin") or 0.0)
+            vector_level_conf = float(vector_vote_level) if vector_vote_level is not None else float(vector_output.get("level_conf") or 0.0)
+            vector_dept_conf = float(vector_vote_dept) if vector_vote_dept is not None else float(vector_output.get("dept_conf") or 0.0)
+            vector_signal_ok = vector_vote_min >= min_similarity if vector_vote_available else vector_similarity >= min_similarity
             if (
                 vector_output.get("dept_pred")
                 and vector_output.get("level_pred")
-                and vector_similarity >= min_similarity
+                and vector_signal_ok
                 and vector_margin >= min_margin
             ):
                 trace["winner"] = layer_id
@@ -171,8 +195,31 @@ def evaluate_policy(policy: Dict[str, Any], method_outputs: Dict[str, Dict[str, 
                 return {
                     "pred_level": vector_output.get("level_pred"),
                     "pred_dept": vector_output.get("dept_pred"),
-                    "conf_level": float(vector_output.get("level_conf") or 0.0),
-                    "conf_dept": float(vector_output.get("dept_conf") or 0.0),
+                    "conf_level": vector_level_conf,
+                    "conf_dept": vector_dept_conf,
+                    "trace": trace,
+                }
+            _trace_step(trace, layer_id, False)
+            continue
+
+        if layer_type == "deep_model":
+            min_confidence = float(layer.get("min_confidence") or 0.0)
+            deep_level_conf = float(deep_output.get("level_conf") or 0.0)
+            deep_dept_conf = float(deep_output.get("dept_conf") or 0.0)
+            if (
+                deep_output.get("available")
+                and deep_output.get("level_pred")
+                and deep_output.get("dept_pred")
+                and deep_level_conf >= min_confidence
+                and deep_dept_conf >= min_confidence
+            ):
+                trace["winner"] = layer_id
+                _trace_step(trace, layer_id, True)
+                return {
+                    "pred_level": deep_output.get("level_pred"),
+                    "pred_dept": deep_output.get("dept_pred"),
+                    "conf_level": deep_level_conf,
+                    "conf_dept": deep_dept_conf,
                     "trace": trace,
                 }
             _trace_step(trace, layer_id, False)

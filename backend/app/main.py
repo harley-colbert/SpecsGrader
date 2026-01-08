@@ -22,7 +22,9 @@ from .services.model_inference_service import ModelInferenceService
 from .services.aggregate_service import aggregate_outputs
 from .services.job_manager import JobManager
 from .services.model_insights_service import ModelInsightsService
+from .services.deep_model_service import DeepModelService
 from .label_policy import load_label_policy, save_label_policy
+from .vector.embedder import EmbedderConfig, embedding_backends, transformer_backend_status
 
 ALLOWED_PANES = {"train", "classify", "results"}
 
@@ -33,7 +35,7 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
 
     settings = get_settings()
-    app = FastAPI(title="SpecsGrader", version="4.6.0")
+    app = FastAPI(title="SpecsGrader", version="4.9.0")
     app_state: AppState = get_state()
 
     frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
@@ -60,6 +62,7 @@ def create_app() -> FastAPI:
         workspace=workspace_dir,
         app_state=app_state,
     )
+    deep_model_service = DeepModelService(app_state=app_state)
 
     modelset_service = ModelSetService(
         workspace=workspace_dir,
@@ -368,16 +371,32 @@ def create_app() -> FastAPI:
         app_state.never_send_externally = bool(payload.get("never_send_externally", False))
         return {"never_send_externally": app_state.never_send_externally}
 
+    @app.get("/api/embeddings/backends", response_class=JSONResponse)
+    async def embeddings_backends() -> Dict[str, Any]:
+        return {"backends": embedding_backends(workspace_dir)}
+
     @app.post("/api/vector/build", response_class=JSONResponse)
     async def vector_build(payload: Dict[str, Any] = Body(None)) -> Dict[str, Any]:
         k = int(payload.get("k", 5)) if payload else 5
+        model = payload.get("model", "tfidf") if payload else "tfidf"
         if not app_state.training_dataset:
             raise HTTPException(status_code=400, detail="No training dataset loaded")
         rows = app_state.training_dataset.get("rows", [])
         if not rows:
             raise HTTPException(status_code=400, detail="Training dataset empty")
-        vector_service.build(rows)
-        return {"built": True, "k": k, "path": app_state.vector_store.get("path")}
+        embedder_config = EmbedderConfig(model=model)
+        if model == "transformer":
+            status = transformer_backend_status(workspace_dir)
+            if not status.get("available"):
+                raise HTTPException(status_code=400, detail=status.get("reason", "Transformer backend unavailable"))
+            embedder_config.transformer_model_path = status.get("model_path")
+        vector_service.build(rows, embedder_config)
+        return {
+            "built": True,
+            "k": k,
+            "path": app_state.vector_store.get("path"),
+            "model": embedder_config.model,
+        }
 
     @app.get("/api/vector/status", response_class=JSONResponse)
     async def vector_status() -> Dict[str, Any]:
@@ -397,6 +416,8 @@ def create_app() -> FastAPI:
             "top_similarity": result.top_similarity,
             "second_similarity": result.second_similarity,
             "margin": result.margin,
+            "vote_conf_level": result.vote_conf_level,
+            "vote_conf_dept": result.vote_conf_dept,
             "top_neighbors": result.top_neighbors,
             "neighbors": result.neighbors,
         }
@@ -623,9 +644,9 @@ def create_app() -> FastAPI:
             policy = dict(app_state.decision_policy)
 
         default_enabled = {
-            "sanity": {"model": True, "rules": False, "vector": False, "llm": False},
-            "evaluate": {"model": True, "rules": True, "vector": True, "llm": True},
-            "production": {"model": True, "rules": True, "vector": True, "llm": True},
+            "sanity": {"model": True, "rules": False, "vector": False, "llm": False, "deep": False},
+            "evaluate": {"model": True, "rules": True, "vector": True, "llm": True, "deep": False},
+            "production": {"model": True, "rules": True, "vector": True, "llm": True, "deep": False},
         }
         enabled = (
             payload.get("enabled_methods", default_enabled[mode])
@@ -664,6 +685,8 @@ def create_app() -> FastAPI:
                         "top_similarity": vector_pred.top_similarity,
                         "second_similarity": vector_pred.second_similarity,
                         "margin": vector_pred.margin,
+                        "vote_conf_level": vector_pred.vote_conf_level,
+                        "vote_conf_dept": vector_pred.vote_conf_dept,
                         "neighbors": vector_pred.top_neighbors,
                     }
                 except Exception:
@@ -710,6 +733,15 @@ def create_app() -> FastAPI:
                         "level_top_terms": level_terms,
                         "dept_top_terms": dept_terms,
                     }
+            if enabled.get("deep"):
+                deep_pred = deep_model_service.predict(text)
+                method_outputs["deep"] = {
+                    "available": deep_pred.available,
+                    "dept_pred": deep_pred.dept_pred,
+                    "dept_conf": deep_pred.dept_conf,
+                    "level_pred": deep_pred.level_pred,
+                    "level_conf": deep_pred.level_conf,
+                }
 
             aggregated = aggregate_outputs(method_outputs, mode=mode, policy=policy)
             level_threshold = float(thresholds.get("level", 0.0))

@@ -14,6 +14,7 @@ import {
   runSanityCheck,
   runEvaluate,
   buildVectorStore,
+  fetchEmbeddingBackends,
   listModelSets,
   createModelSet,
   updateModelSet,
@@ -48,6 +49,9 @@ let insightsType = "level";
 let insightsClass = "";
 let insightsTopN = 20;
 let vectorBuildStatus = null;
+let embeddingBackends = null;
+let embeddingBackendError = "";
+let selectedVectorBackend = "tfidf";
 let trainingPollTimer = null;
 let sanityReport = null;
 let sanityLoading = false;
@@ -186,6 +190,17 @@ async function refreshLabelPolicy() {
     labelPolicyError = error.message || "Unknown error";
   } finally {
     labelPolicyLoading = false;
+  }
+}
+
+async function refreshEmbeddingBackends() {
+  embeddingBackendError = "";
+  try {
+    const resp = await fetchEmbeddingBackends();
+    embeddingBackends = resp?.backends || null;
+  } catch (error) {
+    embeddingBackends = null;
+    embeddingBackendError = error.message || "Unknown error";
   }
 }
 
@@ -605,6 +620,7 @@ function render(state) {
   const canTrain = step1Complete && step2Complete && !trainingDataError && !hasBlockingErrors;
   const canProceedAfterTrain = step4Complete;
   const step5Complete = validationCompleted;
+  const step6Complete = hasVector;
   const headlineLevelF1 = Number(trainingStatus?.metrics?.level?.macro_f1 || 0).toFixed(2);
   const headlineDeptF1 = Number(trainingStatus?.metrics?.dept?.macro_f1 || 0).toFixed(2);
   const validationTotalRows = Number(validationSummary?.total_rows || 0);
@@ -620,6 +636,15 @@ function render(state) {
     vector: `Vector store: ${hasVector ? "✅" : "⭕"}`,
     training: `Training data loaded: ${step2Complete ? `✅ (${labeledRows})` : "⭕"}`,
   };
+  const transformerStatus = embeddingBackends?.transformer || null;
+  const transformerAvailable = transformerStatus?.available ?? null;
+  const transformerReason = transformerStatus?.reason || "";
+  let vectorBackendNotice = "";
+  if (selectedVectorBackend === "transformer" && transformerAvailable === false) {
+    selectedVectorBackend = embeddingBackends?.lsa?.available ? "lsa" : "tfidf";
+    vectorBackendNotice = `Transformer unavailable: ${transformerReason || "missing dependencies or model files"}. Switched to ${selectedVectorBackend.toUpperCase()}.`;
+  }
+  const canBuildVector = step4Complete && step2Complete && !trainingDataError;
   const stepStatus = (index, { complete = false, error = false, skipped = false } = {}) => {
     if (error) return "error";
     if (complete) return "completed";
@@ -851,7 +876,7 @@ function render(state) {
           <span class="stepper-index">5</span>
           <span>Validate</span>
         </button>
-        <button class="stepper-step ${stepStatus(6)}" data-step-target="step-vector">
+        <button class="stepper-step ${stepStatus(6, { complete: step6Complete })}" data-step-target="step-vector">
           <span class="stepper-index">6</span>
           <span>Vector store</span>
         </button>
@@ -1128,10 +1153,26 @@ function render(state) {
         </div>
       </div>
 
-      <div class="card placeholder-card" id="step-vector">
+      <div class="card" id="step-vector">
         <h3>Step 6 — Vector store</h3>
         <p class="muted">Build a similarity index so new text can be compared to known examples.</p>
-        <button disabled>Build vector store</button>
+        <div class="param-grid">
+          <label class="field">
+            <span>Embedding backend</span>
+            <select id="vector-backend">
+              <option value="tfidf" ${selectedVectorBackend === "tfidf" ? "selected" : ""}>TF-IDF (fast)</option>
+              <option value="lsa" ${selectedVectorBackend === "lsa" ? "selected" : ""}>LSA (semantic, offline)</option>
+              <option value="transformer" ${selectedVectorBackend === "transformer" ? "selected" : ""} ${
+                transformerAvailable === false ? "disabled" : ""
+              }>Transformer (best semantic; requires extra install + local model folder)</option>
+            </select>
+          </label>
+        </div>
+        ${embeddingBackendError ? `<div class="train-error">${safeString(embeddingBackendError)}</div>` : ""}
+        ${transformerAvailable === false ? `<div class="train-error">Transformer unavailable: ${safeString(transformerReason)}</div>` : ""}
+        ${vectorBackendNotice ? `<div class="train-warning">${safeString(vectorBackendNotice)}</div>` : ""}
+        ${vectorBuildStatus ? `<p class="step-status">${safeString(vectorBuildStatus)}</p>` : ""}
+        <button id="vector-build" ${canBuildVector ? "" : "disabled"}>Build vector store</button>
       </div>
 
       <div class="card placeholder-card" id="step-save">
@@ -1286,6 +1327,7 @@ function render(state) {
   const startBtn = rootEl.querySelector("#train-start");
   const cancelBtn = rootEl.querySelector("#train-cancel");
   const vectorBtn = rootEl.querySelector("#vector-build");
+  const vectorBackendSelect = rootEl.querySelector("#vector-backend");
   const sanityBtn = rootEl.querySelector("#sanity-run");
   const evaluateBtn = rootEl.querySelector("#evaluate-run");
   const insightsTypeSelect = rootEl.querySelector("#insights-type");
@@ -1336,12 +1378,23 @@ function render(state) {
   if (vectorBtn) {
     vectorBtn.addEventListener("click", async () => {
       try {
-        const resp = await buildVectorStore();
+        if (selectedVectorBackend === "transformer" && transformerAvailable === false) {
+          alert(`Transformer unavailable: ${transformerReason}`);
+          return;
+        }
+        const resp = await buildVectorStore(5, selectedVectorBackend);
         vectorBuildStatus = resp.built ? `Built at ${resp.path}` : "Not built";
         render(state);
       } catch (error) {
         alert(error.message);
       }
+    });
+  }
+
+  if (vectorBackendSelect) {
+    vectorBackendSelect.addEventListener("change", () => {
+      selectedVectorBackend = vectorBackendSelect.value;
+      render(state);
     });
   }
 
@@ -2186,6 +2239,7 @@ export default {
       console.error("Failed to fetch modelsets", error);
     }
     await refreshLabelPolicy();
+    await refreshEmbeddingBackends();
 
     if (storeRef && typeof storeRef.getState === "function") {
       lastState = storeRef.getState();
@@ -2224,6 +2278,9 @@ export default {
     insightsClass = "";
     insightsTopN = 20;
     vectorBuildStatus = null;
+    embeddingBackends = null;
+    embeddingBackendError = "";
+    selectedVectorBackend = "tfidf";
     sanityReport = null;
     sanityLoading = false;
     evaluationReport = null;

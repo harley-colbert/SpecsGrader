@@ -115,10 +115,14 @@ export async function fetchTrainingMetrics() {
   return resp && resp.available ? resp.metrics : null;
 }
 
-export async function buildVectorStore(k = 5) {
+export async function fetchEmbeddingBackends() {
+  return request("/api/embeddings/backends");
+}
+
+export async function buildVectorStore(k = 5, model = "tfidf") {
   return request("/api/vector/build", {
     method: "POST",
-    body: JSON.stringify({ k }),
+    body: JSON.stringify({ k, model }),
   });
 }
 
