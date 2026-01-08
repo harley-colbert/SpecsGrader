@@ -41,6 +41,10 @@ def test_evaluate_after_load() -> None:
         assert "rules" in metrics
         assert "vector" in metrics
         assert "ensemble" in metrics
+        level_metrics = metrics["model"]["level"]
+        assert "per_class_precision" in level_metrics
+        assert "per_class_f1" in level_metrics
+        assert "confusion_matrix" in level_metrics
         assert (bundle_dir / "level_model.joblib").exists()
         assert (bundle_dir / "dept_model.joblib").exists()
     finally:

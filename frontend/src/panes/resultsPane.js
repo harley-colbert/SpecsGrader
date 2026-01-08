@@ -3,6 +3,64 @@ import { fetchResults } from "../api/client.js";
 let rootEl = null;
 let results = null;
 
+function renderEvidenceList(items, formatter) {
+  if (!items || !items.length) {
+    return `<p class="muted">None</p>`;
+  }
+  return `<ul class="stats">${items.map(formatter).join("")}</ul>`;
+}
+
+function renderWhy(trace) {
+  if (!trace) {
+    return `<p class="muted">No trace available.</p>`;
+  }
+  const steps = Array.isArray(trace.steps) ? trace.steps : [];
+  const winner = trace.winner ? `Winner: ${trace.winner}` : "Winner: n/a";
+  const selected = steps.filter((step) => step.selected).map((step) => step.step).join(", ");
+  const evidence = trace.evidence || {};
+  const rules = evidence.rules || {};
+  const model = evidence.model || {};
+  const vector = evidence.vector || {};
+
+  const levelTerms = renderEvidenceList(model.level_top_terms, (term) => `<li>${term.term} (${Number(term.weight).toFixed(3)})</li>`);
+  const deptTerms = renderEvidenceList(model.dept_top_terms, (term) => `<li>${term.term} (${Number(term.weight).toFixed(3)})</li>`);
+  const neighbors = renderEvidenceList(vector.neighbors, (neighbor) => {
+    const label = `${neighbor.label_dept ?? "?"}/${neighbor.label_level ?? "?"}`;
+    return `<li>Row ${neighbor.source_row ?? "?"}: ${label} (sim ${Number(neighbor.similarity ?? 0).toFixed(2)})</li>`;
+  });
+  return `
+    <div class="why-details">
+      <p><strong>${winner}</strong></p>
+      ${selected ? `<p class="muted">Selected steps: ${selected}</p>` : ""}
+      <div class="why-section">
+        <h4>Rules evidence</h4>
+        <p class="muted">Hard: ${rules.is_hard ? "yes" : "no"}</p>
+        ${renderEvidenceList(rules.matched, (hit) => `<li>${hit}</li>`)}
+      </div>
+      <div class="why-section">
+        <h4>Model evidence</h4>
+        <p class="muted">Level proba: ${model.level_proba ? JSON.stringify(model.level_proba) : "n/a"}</p>
+        <p class="muted">Dept proba: ${model.dept_proba ? JSON.stringify(model.dept_proba) : "n/a"}</p>
+        <div class="why-columns">
+          <div>
+            <strong>Level terms</strong>
+            ${levelTerms}
+          </div>
+          <div>
+            <strong>Dept terms</strong>
+            ${deptTerms}
+          </div>
+        </div>
+      </div>
+      <div class="why-section">
+        <h4>Vector evidence</h4>
+        <p class="muted">Top similarity: ${Number(vector.top_similarity || 0).toFixed(2)} | Margin: ${Number(vector.margin || 0).toFixed(2)}</p>
+        ${neighbors}
+      </div>
+    </div>
+  `;
+}
+
 function renderContent() {
   const header = `
     <div class="table-header">
@@ -34,16 +92,19 @@ function renderContent() {
         trace = null;
       }
       const winner = trace?.winner ? `Winner: ${trace.winner}` : "Winner: n/a";
-      const steps = Array.isArray(trace?.steps)
-        ? trace.steps.filter((step) => step.selected).map((step) => step.step).join(", ")
-        : "";
       return `
         <div class="table-row">
           <span>${row.risk_text || ""}</span>
           <span>${row.pred_level ?? ""}</span>
           <span>${row.pred_dept ?? ""}</span>
           <span>${conf.toFixed(2)}</span>
-          <span>${winner}${steps ? `<br/><small class="muted">${steps}</small>` : ""}</span>
+          <span>
+            ${winner}
+            <details class="why-toggle">
+              <summary>Why?</summary>
+              ${renderWhy(trace)}
+            </details>
+          </span>
         </div>`;
     })
     .join("");

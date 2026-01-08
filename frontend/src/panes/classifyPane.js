@@ -3,6 +3,7 @@ import {
   testVector,
   fetchSettings,
   saveSettings,
+  fetchLabelPolicy,
   testLlm,
   loadDataset,
   fetchPreview,
@@ -21,6 +22,9 @@ let classifySummary = null;
 let classifyPreview = [];
 let classifyStatus = null;
 let statusInterval = null;
+let labelPolicy = null;
+let labelPolicyError = "";
+let labelPolicyLoading = false;
 let thresholds = { level: 0.0, dept: 0.0, k: 5 };
 let enabledMethods = { rules: true, vector: true, llm: true, model: true };
 let llmModel = "openrouter/auto";
@@ -57,6 +61,67 @@ function renderLlmResult(result) {
       <div><strong>Reason:</strong> ${result.reason ?? ""}</div>
     </div>
   `;
+}
+
+function renderLabelPolicyList(items) {
+  if (!Array.isArray(items) || !items.length) {
+    return `<p class="muted">No definitions available.</p>`;
+  }
+  return `
+    <ul class="label-policy-list">
+      ${items
+        .map(
+          (item) => `
+            <li>
+              <strong>${item.label || item.id}</strong>
+              <span class="muted">${item.description || ""}</span>
+            </li>
+          `
+        )
+        .join("")}
+    </ul>
+  `;
+}
+
+function renderLabelPolicy(policy) {
+  if (!policy) {
+    if (labelPolicyLoading) {
+      return `<p class="muted">Loading label policy...</p>`;
+    }
+    if (labelPolicyError) {
+      return `<p class="muted">Unable to load label policy: ${labelPolicyError}</p>`;
+    }
+    return `<p class="muted">Label policy not available.</p>`;
+  }
+  return `
+    <details class="label-policy">
+      <summary>Label definitions</summary>
+      <div class="label-policy-grid">
+        <div>
+          <h5>Risk levels</h5>
+          ${renderLabelPolicyList(policy.risk_levels)}
+        </div>
+        <div>
+          <h5>Departments</h5>
+          ${renderLabelPolicyList(policy.departments)}
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+async function refreshLabelPolicy() {
+  labelPolicyLoading = true;
+  labelPolicyError = "";
+  try {
+    const resp = await fetchLabelPolicy();
+    labelPolicy = resp?.policy || resp || null;
+  } catch (error) {
+    labelPolicy = null;
+    labelPolicyError = error.message || "Unknown error";
+  } finally {
+    labelPolicyLoading = false;
+  }
 }
 
 function render() {
@@ -131,6 +196,10 @@ function render() {
         <input type="text" id="llm-text" placeholder="Enter text to test LLM" />
         <button id="llm-run" ${neverSend ? "disabled" : ""}>Test LLM</button>
         ${llmResult ? renderLlmResult(llmResult) : ""}
+      </div>
+      <div class="card">
+        <h3>Label definitions</h3>
+        ${renderLabelPolicy(labelPolicy)}
       </div>
     </div>
   `;
@@ -352,6 +421,7 @@ export default {
     }
     const settings = await fetchSettings();
     neverSend = !!settings.never_send_externally;
+    await refreshLabelPolicy();
     render();
   },
   refresh() {
@@ -370,5 +440,8 @@ export default {
     classifySummary = null;
     classifyPreview = [];
     classifyStatus = null;
+    labelPolicy = null;
+    labelPolicyError = "";
+    labelPolicyLoading = false;
   },
 };

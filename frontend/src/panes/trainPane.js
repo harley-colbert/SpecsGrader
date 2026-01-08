@@ -2,6 +2,8 @@ import {
   fetchState,
   fetchPreview,
   loadDataset,
+  fetchDatasetHealth,
+  fetchLabelPolicy,
   fetchRules,
   saveRules,
   testRules,
@@ -21,6 +23,7 @@ import {
   loadModelSet,
   exportModelSetUrl,
   importModelSet,
+  fetchModelInsights,
 } from "../api/client.js";
 
 let rootEl = null;
@@ -30,10 +33,20 @@ let summary = null;
 let preview = [];
 let loading = false;
 let trainingFile = null;
+let datasetHealth = null;
+let labelPolicy = null;
+let labelPolicyError = "";
+let labelPolicyLoading = false;
 let rulesConfig = null;
 let testResult = null;
 let trainingStatus = null;
 let trainingMetrics = null;
+let insightsData = null;
+let insightsLoading = false;
+let insightsError = "";
+let insightsType = "level";
+let insightsClass = "";
+let insightsTopN = 20;
 let vectorBuildStatus = null;
 let trainingPollTimer = null;
 let sanityReport = null;
@@ -133,6 +146,9 @@ async function pollTrainingStatus() {
   try {
     trainingStatus = await fetchTrainingStatus();
     trainingMetrics = trainingStatus?.metrics || null;
+    if (trainingStatus?.stats) {
+      datasetHealth = trainingStatus.stats;
+    }
   } catch (error) {
     console.error("Failed to poll training status", error);
   }
@@ -149,8 +165,124 @@ function startTrainingPoll() {
   trainingPollTimer = setInterval(pollTrainingStatus, 900);
 }
 
+async function refreshDatasetHealth() {
+  try {
+    datasetHealth = await fetchDatasetHealth("train");
+  } catch (error) {
+    datasetHealth = null;
+  }
+}
+
+async function refreshLabelPolicy() {
+  labelPolicyLoading = true;
+  labelPolicyError = "";
+  try {
+    const resp = await fetchLabelPolicy();
+    labelPolicy = resp?.policy || resp || null;
+  } catch (error) {
+    labelPolicy = null;
+    labelPolicyError = error.message || "Unknown error";
+  } finally {
+    labelPolicyLoading = false;
+  }
+}
+
 function safeString(value) {
   return value === null || value === undefined ? "" : String(value);
+}
+
+function formatPct(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return "0%";
+  }
+  return `${Number(value).toFixed(1)}%`;
+}
+
+function renderDistributionTable(title, counts, pct) {
+  const entries = Object.entries(counts || {});
+  if (!entries.length) {
+    return `
+      <div class="card card-inset">
+        <h4>${title}</h4>
+        <p class="muted">No labeled rows to summarize.</p>
+      </div>
+    `;
+  }
+  return `
+    <div class="card card-inset">
+      <h4>${title}</h4>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Class</th>
+            <th>Count</th>
+            <th>%</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${entries
+            .map(([label, count]) => {
+              const pctValue = pct?.[label] ?? 0;
+              return `
+                <tr>
+                  <td>${safeString(label)}</td>
+                  <td>${count}</td>
+                  <td>${formatPct(pctValue)}</td>
+                </tr>
+              `;
+            })
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderLabelPolicyList(items) {
+  if (!Array.isArray(items) || !items.length) {
+    return `<p class="muted">No definitions available.</p>`;
+  }
+  return `
+    <ul class="label-policy-list">
+      ${items
+        .map(
+          (item) => `
+            <li>
+              <strong>${safeString(item.label || item.id)}</strong>
+              <span class="muted">${safeString(item.description)}</span>
+            </li>
+          `
+        )
+        .join("")}
+    </ul>
+  `;
+}
+
+function renderLabelPolicy(policy) {
+  if (!policy) {
+    if (labelPolicyLoading) {
+      return `<p class="muted">Loading label policy...</p>`;
+    }
+    if (labelPolicyError) {
+      return `<p class="muted">Unable to load label policy: ${safeString(labelPolicyError)}</p>`;
+    }
+    return `<p class="muted">Label policy not available.</p>`;
+  }
+  return `
+    <details class="label-policy">
+      <summary>Label definitions</summary>
+      <div class="label-policy-grid">
+        <div>
+          <h5>Risk levels</h5>
+          ${renderLabelPolicyList(policy.risk_levels)}
+        </div>
+        <div>
+          <h5>Departments</h5>
+          ${renderLabelPolicyList(policy.departments)}
+        </div>
+      </div>
+    </details>
+  `;
 }
 
 function formatTs(ts) {
@@ -300,18 +432,25 @@ function render(state) {
   const hasVector = Boolean(capabilities.vector);
   const activeModelsetId = state.active_modelset_id;
   const activeModelsetVersionId = state.active_modelset_version_id;
+  const healthStats = datasetHealth || trainingStatus?.stats || null;
   const hasActiveModelset = Boolean(activeModelsetId);
-  const trainingTotalRows = Number(summary?.total_rows || 0);
+  const insightsModelsetId = modelsetSelectId || activeModelsetId;
+  const insightsVersionId = modelsetVersionSelectId || activeModelsetVersionId;
+  const insightsAvailable = Boolean(trainingStatus?.status === "completed" && insightsModelsetId && insightsVersionId);
+  const trainingTotalRows = Number(summary?.total_rows || healthStats?.total_rows || 0);
   const trainingMissingLabels = Number(summary?.missing_labels || 0);
-  const labeledRows = Math.max(trainingTotalRows - trainingMissingLabels, 0);
+  const labeledRows = Number(healthStats?.labeled_rows ?? Math.max(trainingTotalRows - trainingMissingLabels, 0));
   const hasTrainingData = trainingTotalRows > 0;
   const trainingDataError = hasTrainingData && labeledRows === 0;
+  const blockingErrors = healthStats?.blocking_errors || [];
+  const warnings = healthStats?.warnings || [];
+  const hasBlockingErrors = blockingErrors.length > 0;
   const step1Complete = Boolean(modelsetSelectId || activeModelsetId);
   const step2Complete = hasTrainingData && labeledRows > 0;
   const step4Complete = trainingStatus?.status === "completed";
   const trainingInProgress = trainingStatus?.status === "running";
   const step3Skipped = step4Complete && !rulesModified;
-  const canTrain = step1Complete && step2Complete && !trainingDataError;
+  const canTrain = step1Complete && step2Complete && !trainingDataError && !hasBlockingErrors;
   const canProceedAfterTrain = step4Complete;
   const step5Complete = validationCompleted;
   const headlineLevelF1 = Number(trainingStatus?.metrics?.level?.macro_f1 || 0).toFixed(2);
@@ -336,7 +475,7 @@ function render(state) {
     const firstIncomplete =
       !step1Complete
         ? 1
-        : !step2Complete || trainingDataError
+        : !step2Complete || trainingDataError || hasBlockingErrors
         ? 2
         : !step4Complete && !trainingInProgress
         ? 3
@@ -639,10 +778,55 @@ function render(state) {
             ${preview.length ? renderPreview(preview) : `<p>No preview available.</p>`}
           </div>
         </div>
+        <div class="card">
+          <h4>Dataset health</h4>
+          ${healthStats
+            ? `
+              <div class="card-grid">
+                ${renderDistributionTable(
+                  "Risk level distribution",
+                  healthStats.label_distribution?.level || {},
+                  healthStats.label_distribution_pct?.level || {}
+                )}
+                ${renderDistributionTable(
+                  "Department distribution",
+                  healthStats.label_distribution?.dept || {},
+                  healthStats.label_distribution_pct?.dept || {}
+                )}
+              </div>
+              ${warnings.length ? `
+                <div class="train-warning">
+                  <strong>Warnings</strong>
+                  <ul>
+                    ${warnings.map((warning) => `<li>${safeString(warning)}</li>`).join("")}
+                  </ul>
+                </div>
+              ` : `<p class="muted">No imbalance warnings detected.</p>`}
+              ${hasBlockingErrors ? `
+                <div class="train-error">
+                  <strong>Blocking issues</strong>
+                  <ul>
+                    ${blockingErrors.map((error) => `<li>${safeString(error)}</li>`).join("")}
+                  </ul>
+                </div>
+              ` : ""}
+            `
+            : `<p class="muted">Load a training dataset to view health checks.</p>`}
+        </div>
+        <div class="card">
+          <h4>Label definitions</h4>
+          ${renderLabelPolicy(labelPolicy)}
+        </div>
         ${trainingDataError
           ? `
         <div class="train-error">
             We found data rows but no labels in columns F and G starting at row 5. Please ensure the file includes labeled rows with valid risk level and department values.
+          </div>
+          `
+          : hasBlockingErrors
+          ? `
+        <div class="train-error">
+            Resolve the blocking dataset issues above before training.
           </div>
           `
           : step2Complete
@@ -733,6 +917,16 @@ function render(state) {
         ${trainingMetrics ? renderMetrics(trainingMetrics) : ""}
         ${step4Complete ? `<p class="step-status success">✅ Training complete. Level macro F1 ${headlineLevelF1} | Dept macro F1 ${headlineDeptF1}. Next: Validate.</p>` : ""}
       </div>
+
+      ${renderInsightsPanel({
+        available: insightsAvailable,
+        type: insightsType,
+        className: insightsClass,
+        topN: insightsTopN,
+        data: insightsData,
+        loading: insightsLoading,
+        errorMessage: insightsError,
+      })}
 
       <div class="card" id="step-validate">
         <h3>Step 5 — Validate</h3>
@@ -866,6 +1060,7 @@ function render(state) {
         summary = await loadDataset("train", trainingFile);
         const previewResp = await fetchPreview("train", 10, 0);
         preview = previewResp.rows || [];
+        await refreshDatasetHealth();
         sanityReport = null;
         evaluationReport = null;
         validationCompleted = false;
@@ -918,6 +1113,10 @@ function render(state) {
   const vectorBtn = rootEl.querySelector("#vector-build");
   const sanityBtn = rootEl.querySelector("#sanity-run");
   const evaluateBtn = rootEl.querySelector("#evaluate-run");
+  const insightsTypeSelect = rootEl.querySelector("#insights-type");
+  const insightsClassSelect = rootEl.querySelector("#insights-class");
+  const insightsTopNInput = rootEl.querySelector("#insights-top-n");
+  const insightsRefreshBtn = rootEl.querySelector("#insights-refresh");
 
   const syncParams = () => {
     trainingParams.oversample_enabled = oversampleCheckbox?.checked || false;
@@ -998,6 +1197,54 @@ function render(state) {
         validationErrorMessage = error.message;
       } finally {
         evaluationLoading = false;
+        render(state);
+      }
+    });
+  }
+
+  if (insightsTypeSelect) {
+    insightsTypeSelect.addEventListener("change", () => {
+      insightsType = insightsTypeSelect.value;
+      insightsClass = "";
+      render(state);
+    });
+  }
+
+  if (insightsClassSelect) {
+    insightsClassSelect.addEventListener("change", () => {
+      insightsClass = insightsClassSelect.value;
+    });
+  }
+
+  if (insightsTopNInput) {
+    insightsTopNInput.addEventListener("change", () => {
+      insightsTopN = Number(insightsTopNInput.value || insightsTopN);
+    });
+  }
+
+  if (insightsRefreshBtn) {
+    insightsRefreshBtn.addEventListener("click", async () => {
+      const modelsetId = modelsetSelectId || activeModelsetId;
+      const versionId = modelsetVersionSelectId || activeModelsetVersionId;
+      if (!modelsetId || !versionId) {
+        insightsError = "Select a ModelSet version to load insights.";
+        render(state);
+        return;
+      }
+      insightsLoading = true;
+      insightsError = "";
+      render(state);
+      try {
+        const data = await fetchModelInsights(modelsetId, versionId, insightsTopN);
+        insightsData = data;
+        const labels = data?.insights?.[insightsType]?.labels || [];
+        if (labels.length && !labels.includes(insightsClass)) {
+          insightsClass = labels[0];
+        }
+      } catch (error) {
+        insightsError = error.message;
+      } finally {
+        insightsLoading = false;
         render(state);
       }
     });
@@ -1198,6 +1445,7 @@ function render(state) {
       if (!modelsetSelectId || !modelsetVersionSelectId) return;
       try {
         await loadModelSet(modelsetSelectId, modelsetVersionSelectId);
+        await refreshLabelPolicy();
         try {
           rulesConfig = await fetchRules();
         } catch (error) {
@@ -1476,24 +1724,10 @@ function renderRuleResult() {
 
 function renderMetrics(metrics) {
   if (!metrics) return "";
-  const level = metrics.level || {};
-  const dept = metrics.dept || {};
-  const recallRow = (data) =>
-    Object.entries(data || {})
-      .map(([cls, rec]) => `<li>${cls}: ${Number(rec).toFixed(2)}</li>`)
-      .join("");
   return `
     <div class="metrics">
-      <div>
-        <h4>Risk level</h4>
-        <p>Macro F1: ${Number(level.macro_f1 || 0).toFixed(2)} | Balanced acc: ${Number(level.balanced_accuracy || 0).toFixed(2)}</p>
-        <ul class="stats">${recallRow(level.per_class_recall)}</ul>
-      </div>
-      <div>
-        <h4>Department</h4>
-        <p>Macro F1: ${Number(dept.macro_f1 || 0).toFixed(2)} | Balanced acc: ${Number(dept.balanced_accuracy || 0).toFixed(2)}</p>
-        <ul class="stats">${recallRow(dept.per_class_recall)}</ul>
-      </div>
+      ${renderMetricBlock("Risk level", metrics.level)}
+      ${renderMetricBlock("Department", metrics.dept)}
     </div>
   `;
 }
@@ -1572,14 +1806,162 @@ function renderMetricBlock(title, metrics) {
   if (!metrics) {
     return `<div><h4>${title}</h4><p class="muted">No data</p></div>`;
   }
-  const level = metrics.level || {};
-  const dept = metrics.dept || {};
-  const levelAcc = Number(level.accuracy || 0).toFixed(2);
-  const deptAcc = Number(dept.accuracy || 0).toFixed(2);
+  const macroF1 = Number(metrics.macro_f1 || 0).toFixed(2);
+  const weightedF1 = Number(metrics.weighted_f1 || 0).toFixed(2);
+  const balancedAcc = Number(metrics.balanced_accuracy || 0).toFixed(2);
+  const labels = metrics.labels || Object.keys(metrics.per_class_recall || {});
+  const perClassPrecision = metrics.per_class_precision || {};
+  const perClassRecall = metrics.per_class_recall || {};
+  const perClassF1 = metrics.per_class_f1 || {};
+  const minRecall = Number(trainingParams?.min_recall_per_class ?? 0.5);
   return `
     <div>
       <h4>${title}</h4>
-      <p>Level acc: ${levelAcc} | Dept acc: ${deptAcc}</p>
+      <div class="metrics-summary">
+        <div><strong>Macro F1</strong> ${macroF1}</div>
+        <div><strong>Weighted F1</strong> ${weightedF1}</div>
+        <div><strong>Balanced acc</strong> ${balancedAcc}</div>
+      </div>
+      ${renderPerClassTable(labels, perClassPrecision, perClassRecall, perClassF1, minRecall)}
+      ${renderConfusionMatrix(metrics.confusion_matrix, labels)}
+    </div>
+  `;
+}
+
+function renderPerClassTable(labels, precision, recall, f1, minRecall) {
+  if (!labels.length) {
+    return `<p class="muted">No per-class metrics available.</p>`;
+  }
+  return `
+    <table class="table metrics-table">
+      <thead>
+        <tr>
+          <th>Class</th>
+          <th>Precision</th>
+          <th>Recall</th>
+          <th>F1</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${labels
+          .map((label) => {
+            const recallValue = Number(recall?.[label] ?? 0);
+            const warnRecall = ["high", "extreme"].includes(label) && recallValue < minRecall;
+            const recallClass = warnRecall ? "metric-warning" : "";
+            return `
+              <tr>
+                <td>${safeString(label)}</td>
+                <td>${Number(precision?.[label] ?? 0).toFixed(2)}</td>
+                <td class="${recallClass}">${recallValue.toFixed(2)}</td>
+                <td>${Number(f1?.[label] ?? 0).toFixed(2)}</td>
+              </tr>
+            `;
+          })
+          .join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderConfusionMatrix(matrix, labels) {
+  if (!Array.isArray(matrix) || !matrix.length) {
+    return `<p class="muted">No confusion matrix available.</p>`;
+  }
+  const header = labels.map((label) => `<th>${safeString(label)}</th>`).join("");
+  const body = matrix
+    .map((row, rowIndex) => {
+      const cells = row.map((value) => `<td>${value}</td>`).join("");
+      const rowLabel = labels[rowIndex] ?? "";
+      return `<tr><th>${safeString(rowLabel)}</th>${cells}</tr>`;
+    })
+    .join("");
+  return `
+    <div class="matrix">
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            ${header}
+          </tr>
+        </thead>
+        <tbody>
+          ${body}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderInsightsPanel({
+  available,
+  type,
+  className,
+  topN,
+  data,
+  loading,
+  errorMessage,
+}) {
+  if (!available) {
+    return `
+      <div class="card placeholder-card">
+        <h3>Model insights</h3>
+        <p class="muted">Train and save a ModelSet version to view top TF-IDF terms.</p>
+      </div>
+    `;
+  }
+
+  const insights = data?.insights?.[type] || null;
+  const labels = insights?.labels || [];
+  const selectedClass = className || labels[0] || "";
+  const terms = insights?.top_terms?.[selectedClass] || [];
+  const metadata = insights?.metadata || {};
+  return `
+    <div class="card" id="step-insights">
+      <h3>Model insights</h3>
+      <p class="muted">Explore the top TF-IDF terms influencing each class prediction.</p>
+      <div class="param-grid">
+        <label class="field">
+          <span>Label type</span>
+          <select id="insights-type">
+            <option value="level" ${type === "level" ? "selected" : ""}>Risk</option>
+            <option value="dept" ${type === "dept" ? "selected" : ""}>Department</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Class</span>
+          <select id="insights-class">
+            ${labels.map((label) => `<option value="${label}" ${label === selectedClass ? "selected" : ""}>${label}</option>`).join("")}
+          </select>
+        </label>
+        <label class="field">
+          <span>Top N</span>
+          <input type="number" id="insights-top-n" min="5" max="50" value="${topN}" />
+        </label>
+      </div>
+      <div class="rule-actions">
+        <button id="insights-refresh" ${loading ? "disabled" : ""}>${loading ? "Loading..." : "Load insights"}</button>
+      </div>
+      ${errorMessage ? `<div class="train-error">${safeString(errorMessage)}</div>` : ""}
+      ${insights
+        ? `
+          <p class="muted">Vectorizer: ngram ${safeString(metadata.ngram_range)} | max features ${safeString(metadata.max_features)}</p>
+          ${terms.length
+            ? `
+              <table class="table metrics-table">
+                <thead>
+                  <tr>
+                    <th>Term</th>
+                    <th>Weight</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${terms.map((term) => `<tr><td>${safeString(term.term)}</td><td>${Number(term.weight).toFixed(3)}</td></tr>`).join("")}
+                </tbody>
+              </table>
+            `
+            : `<p class="muted">No positive-weight terms found for this class.</p>`}
+        `
+        : `<p class="muted">Load a trained ModelSet version to view insights.</p>`}
     </div>
   `;
 }
@@ -1610,6 +1992,11 @@ export default {
         startTrainingPoll();
         await pollTrainingStatus();
       }
+      if (trainingStatus?.stats) {
+        datasetHealth = trainingStatus.stats;
+      } else {
+        await refreshDatasetHealth();
+      }
     } catch (error) {
       console.error("Failed to fetch training status", error);
       trainingStatus = null;
@@ -1621,6 +2008,7 @@ export default {
     } catch (error) {
       console.error("Failed to fetch modelsets", error);
     }
+    await refreshLabelPolicy();
 
     if (storeRef && typeof storeRef.getState === "function") {
       lastState = storeRef.getState();
@@ -1640,6 +2028,7 @@ export default {
     preview = [];
     loading = false;
     trainingFile = null;
+    datasetHealth = null;
     testResult = null;
     rulesConfig = null;
     rulesEditorOpen = false;
@@ -1651,6 +2040,12 @@ export default {
     trainingAdvancedOpen = false;
     trainingStatus = null;
     trainingMetrics = null;
+    insightsData = null;
+    insightsLoading = false;
+    insightsError = "";
+    insightsType = "level";
+    insightsClass = "";
+    insightsTopN = 20;
     vectorBuildStatus = null;
     sanityReport = null;
     sanityLoading = false;
@@ -1667,5 +2062,8 @@ export default {
     validationEvaluationLoading = false;
     validationAccordionOpen = false;
     validationError = "";
+    labelPolicy = null;
+    labelPolicyError = "";
+    labelPolicyLoading = false;
   },
 };

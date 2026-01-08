@@ -11,12 +11,14 @@ import numpy as np
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import balanced_accuracy_score, confusion_matrix, f1_score, recall_score
+from sklearn.metrics import balanced_accuracy_score, confusion_matrix, f1_score, precision_score, recall_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 
 from backend.app.services.rule_service import RuleService
 from backend.app.services.aggregate_service import aggregate_outputs
+from backend.app.services.ingest_service import DEPARTMENTS, RISK_LEVELS
+from backend.app.label_policy import load_label_policy
 from backend.app.vector.vector_store import VectorStore
 from backend.app.vector.embedder import EmbedderConfig
 
@@ -89,11 +91,24 @@ class TrainingService:
     def _label_distribution(rows: List[Dict[str, object]], label_key: str) -> Dict[str, int]:
         counts: Dict[str, int] = {}
         for r in rows:
-            label = str(r.get(label_key) or "")
+            label = str(r.get(label_key) or "").strip().lower()
             if not label:
                 continue
             counts[label] = counts.get(label, 0) + 1
         return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+
+    @staticmethod
+    def _distribution_pct(counts: Dict[str, int], total: int) -> Dict[str, float]:
+        if total <= 0:
+            return {label: 0.0 for label in counts}
+        return {label: round((count / total) * 100.0, 2) for label, count in counts.items()}
+
+    @staticmethod
+    def _ordered_distribution(counts: Dict[str, int], expected: List[str]) -> Dict[str, int]:
+        ordered = {label: counts.get(label, 0) for label in expected}
+        extras = {label: count for label, count in counts.items() if label not in ordered}
+        ordered.update(dict(sorted(extras.items(), key=lambda kv: (-kv[1], kv[0]))))
+        return ordered
 
     def _compute_stats(self, rows: List[Dict[str, object]]) -> Dict[str, Any]:
         total_rows = len(rows)
@@ -111,6 +126,44 @@ class TrainingService:
             if r.get("risk_text") and r.get("label_level") and r.get("label_dept"):
                 labeled_rows.append(r)
 
+        label_distribution_level = self._label_distribution(labeled_rows, "label_level")
+        label_distribution_dept = self._label_distribution(labeled_rows, "label_dept")
+        expected_levels = sorted(RISK_LEVELS)
+        expected_depts = sorted(DEPARTMENTS)
+        ordered_level = self._ordered_distribution(label_distribution_level, expected_levels)
+        ordered_dept = self._ordered_distribution(label_distribution_dept, expected_depts)
+        warnings: List[str] = []
+        blocking_errors: List[str] = []
+
+        if total_rows == 0:
+            blocking_errors.append("No rows loaded.")
+        if missing_risk_text == total_rows and total_rows > 0:
+            blocking_errors.append("All rows are missing risk text.")
+        if missing_level == total_rows and total_rows > 0:
+            blocking_errors.append("All rows are missing risk level labels.")
+        if missing_dept == total_rows and total_rows > 0:
+            blocking_errors.append("All rows are missing department labels.")
+        if len(labeled_rows) == 0 and total_rows > 0:
+            blocking_errors.append("No fully labeled rows available for training.")
+
+        if len(labeled_rows) > 0:
+            missing_levels = [label for label in expected_levels if ordered_level.get(label, 0) == 0]
+            missing_depts = [label for label in expected_depts if ordered_dept.get(label, 0) == 0]
+            if missing_levels:
+                warnings.append(f"Missing risk level classes: {', '.join(missing_levels)}.")
+            if missing_depts:
+                warnings.append(f"Missing department classes: {', '.join(missing_depts)}.")
+
+            rare_levels = [label for label, count in ordered_level.items() if count > 0 and count < 2]
+            rare_depts = [label for label, count in ordered_dept.items() if count > 0 and count < 2]
+            if rare_levels:
+                warnings.append(f"Rare risk level classes (n<2): {', '.join(rare_levels)}.")
+            if rare_depts:
+                warnings.append(f"Rare department classes (n<2): {', '.join(rare_depts)}.")
+
+            if len(labeled_rows) < 5:
+                warnings.append("Too few labeled rows for reliable training.")
+
         return {
             "total_rows": total_rows,
             "labeled_rows": len(labeled_rows),
@@ -118,10 +171,23 @@ class TrainingService:
             "missing_label_level": missing_level,
             "missing_label_dept": missing_dept,
             "label_distribution": {
-                "level": self._label_distribution(labeled_rows, "label_level"),
-                "dept": self._label_distribution(labeled_rows, "label_dept"),
+                "level": ordered_level,
+                "dept": ordered_dept,
             },
+            "label_distribution_pct": {
+                "level": self._distribution_pct(ordered_level, len(labeled_rows)),
+                "dept": self._distribution_pct(ordered_dept, len(labeled_rows)),
+            },
+            "warnings": warnings,
+            "blocking_errors": blocking_errors,
         }
+
+    def dataset_health(self) -> Dict[str, Any]:
+        rows = self.app_state.training_dataset.get("rows", []) if self.app_state.training_dataset else []
+        stats = self._compute_stats(rows)
+        existing_stats = self.app_state.training_job.get("stats") or {}
+        self._update_job(stats={**existing_stats, **stats})
+        return stats
 
     @staticmethod
     def oversample_rows(rows: List[Dict[str, object]], label_key: str, cap_ratio: float) -> List[Dict[str, object]]:
@@ -234,6 +300,11 @@ class TrainingService:
             levels = [str(r.get("label_level")) for r in filtered]
             depts = [str(r.get("label_dept")) for r in filtered]
 
+            insights_level_pipeline = self._build_uncalibrated_pipeline()
+            insights_dept_pipeline = self._build_uncalibrated_pipeline()
+            insights_level_pipeline.fit(texts, levels)
+            insights_dept_pipeline.fit(texts, depts)
+
             # Build initial calibrated pipelines
             level_pipeline = self._build_pipeline(params.calibration_method)
             dept_pipeline = self._build_pipeline(params.calibration_method)
@@ -292,31 +363,53 @@ class TrainingService:
 
             level_preds = level_pipeline.predict(texts)
             dept_preds = dept_pipeline.predict(texts)
+            level_labels = list(level_pipeline.classes_)
+            dept_labels = list(dept_pipeline.classes_)
+            level_precision = precision_score(levels, level_preds, average=None, labels=level_labels, zero_division=0)
+            dept_precision = precision_score(depts, dept_preds, average=None, labels=dept_labels, zero_division=0)
+            level_recall = recall_score(levels, level_preds, average=None, labels=level_labels, zero_division=0)
+            dept_recall = recall_score(depts, dept_preds, average=None, labels=dept_labels, zero_division=0)
+            level_f1 = f1_score(levels, level_preds, average=None, labels=level_labels, zero_division=0)
+            dept_f1 = f1_score(depts, dept_preds, average=None, labels=dept_labels, zero_division=0)
 
             metrics = {
                 "level": {
-                    "macro_f1": float(f1_score(levels, level_preds, average="macro")),
+                    "macro_f1": float(f1_score(levels, level_preds, average="macro", zero_division=0)),
+                    "weighted_f1": float(f1_score(levels, level_preds, average="weighted", zero_division=0)),
                     "balanced_accuracy": float(balanced_accuracy_score(levels, level_preds)),
+                    "labels": level_labels,
+                    "per_class_precision": {
+                        cls: float(prec)
+                        for cls, prec in zip(level_labels, level_precision)
+                    },
                     "per_class_recall": {
                         cls: float(rec)
-                        for cls, rec in zip(
-                            level_pipeline.classes_,
-                            recall_score(levels, level_preds, average=None, labels=level_pipeline.classes_),
-                        )
+                        for cls, rec in zip(level_labels, level_recall)
                     },
-                    "confusion_matrix": confusion_matrix(levels, level_preds, labels=list(level_pipeline.classes_)).tolist(),
+                    "per_class_f1": {
+                        cls: float(score)
+                        for cls, score in zip(level_labels, level_f1)
+                    },
+                    "confusion_matrix": confusion_matrix(levels, level_preds, labels=level_labels).tolist(),
                 },
                 "dept": {
-                    "macro_f1": float(f1_score(depts, dept_preds, average="macro")),
+                    "macro_f1": float(f1_score(depts, dept_preds, average="macro", zero_division=0)),
+                    "weighted_f1": float(f1_score(depts, dept_preds, average="weighted", zero_division=0)),
                     "balanced_accuracy": float(balanced_accuracy_score(depts, dept_preds)),
+                    "labels": dept_labels,
+                    "per_class_precision": {
+                        cls: float(prec)
+                        for cls, prec in zip(dept_labels, dept_precision)
+                    },
                     "per_class_recall": {
                         cls: float(rec)
-                        for cls, rec in zip(
-                            dept_pipeline.classes_,
-                            recall_score(depts, dept_preds, average=None, labels=dept_pipeline.classes_),
-                        )
+                        for cls, rec in zip(dept_labels, dept_recall)
                     },
-                    "confusion_matrix": confusion_matrix(depts, dept_preds, labels=list(dept_pipeline.classes_)).tolist(),
+                    "per_class_f1": {
+                        cls: float(score)
+                        for cls, score in zip(dept_labels, dept_f1)
+                    },
+                    "confusion_matrix": confusion_matrix(depts, dept_preds, labels=dept_labels).tolist(),
                 },
             }
 
@@ -332,8 +425,12 @@ class TrainingService:
             bundle_dir.mkdir(parents=True, exist_ok=True)
             level_path = bundle_dir / "level_model.joblib"
             dept_path = bundle_dir / "dept_model.joblib"
+            insights_level_path = bundle_dir / "level_insights_model.joblib"
+            insights_dept_path = bundle_dir / "dept_insights_model.joblib"
             joblib.dump(level_pipeline, level_path)
             joblib.dump(dept_pipeline, dept_path)
+            joblib.dump(insights_level_pipeline, insights_level_path)
+            joblib.dump(insights_dept_pipeline, insights_dept_path)
 
             bundle_meta = {
                 "created_at": datetime.now(timezone.utc).isoformat(),
@@ -343,6 +440,7 @@ class TrainingService:
                     "dept": {label: depts.count(label) for label in set(depts)},
                 },
                 "metrics": metrics,
+                "label_policy": load_label_policy(self.workspace, self.app_state.active_modelset_id),
             }
             bundle_meta_path = bundle_dir / "bundle_meta.json"
             bundle_meta_path.write_text(json.dumps(bundle_meta, indent=2), encoding="utf-8")
@@ -356,6 +454,8 @@ class TrainingService:
                 finished_at=self._now_iso(),
                 level_model_path=str(level_path),
                 dept_model_path=str(dept_path),
+                level_insights_model_path=str(insights_level_path),
+                dept_insights_model_path=str(insights_dept_path),
                 bundle_meta_path=str(bundle_meta_path),
             )
             self._log_event(
@@ -445,9 +545,20 @@ class TrainingService:
         if not expected or not predicted:
             return {"accuracy": 0.0, "macro_f1": 0.0}
         accuracy = sum(exp == pred for exp, pred in zip(expected, predicted)) / len(expected)
+        labels = sorted(set(expected) | set(predicted))
+        per_class_precision = precision_score(expected, predicted, average=None, labels=labels, zero_division=0)
+        per_class_recall = recall_score(expected, predicted, average=None, labels=labels, zero_division=0)
+        per_class_f1 = f1_score(expected, predicted, average=None, labels=labels, zero_division=0)
         return {
             "accuracy": float(accuracy),
-            "macro_f1": float(f1_score(expected, predicted, average="macro")),
+            "macro_f1": float(f1_score(expected, predicted, average="macro", zero_division=0)),
+            "weighted_f1": float(f1_score(expected, predicted, average="weighted", zero_division=0)),
+            "balanced_accuracy": float(balanced_accuracy_score(expected, predicted)),
+            "labels": labels,
+            "per_class_precision": {label: float(value) for label, value in zip(labels, per_class_precision)},
+            "per_class_recall": {label: float(value) for label, value in zip(labels, per_class_recall)},
+            "per_class_f1": {label: float(value) for label, value in zip(labels, per_class_f1)},
+            "confusion_matrix": confusion_matrix(expected, predicted, labels=labels).tolist(),
         }
 
     def evaluate(

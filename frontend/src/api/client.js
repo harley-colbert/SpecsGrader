@@ -57,6 +57,15 @@ export async function fetchPreview(mode, limit = 20, offset = 0) {
   return request(`/api/data/preview?${params.toString()}`);
 }
 
+export async function fetchDatasetHealth(mode = "train") {
+  const params = new URLSearchParams({ mode });
+  return request(`/api/data/health?${params.toString()}`);
+}
+
+export async function fetchLabelPolicy() {
+  return request("/api/label-policy");
+}
+
 export async function fetchRules() {
   return request("/api/rules/get");
 }
@@ -111,6 +120,14 @@ export async function buildVectorStore(k = 5) {
     method: "POST",
     body: JSON.stringify({ k }),
   });
+}
+
+export async function fetchModelInsights(modelsetId, versionId = null, topN = 20) {
+  const params = new URLSearchParams({ top_n: String(topN) });
+  if (versionId) {
+    params.set("version_id", versionId);
+  }
+  return request(`/api/modelsets/${encodeURIComponent(modelsetId)}/insights?${params.toString()}`);
 }
 
 export async function testVector(text, k = 5) {
