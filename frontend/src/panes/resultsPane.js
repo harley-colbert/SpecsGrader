@@ -32,8 +32,35 @@ function buildResultsCsv(rows) {
   return `${lines.join("\n")}\n`;
 }
 
-function downloadCsv(rows) {
+async function downloadCsv(rows) {
   const csv = buildResultsCsv(rows);
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: "results.csv",
+        types: [
+          {
+            description: "CSV file",
+            accept: {
+              "text/csv": [".csv"],
+            },
+          },
+        ],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(csv);
+      await writable.close();
+      return;
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        alert("Export canceled.");
+        return;
+      }
+      alert("Unable to save the CSV file.");
+      return;
+    }
+  }
+
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -189,12 +216,12 @@ export default {
     }
     rootEl.innerHTML = renderContent();
     const exportBtn = rootEl.querySelector("#results-export");
-    exportBtn?.addEventListener("click", () => {
+    exportBtn?.addEventListener("click", async () => {
       if (!results?.rows?.length) {
         alert("No results available to export.");
         return;
       }
-      downloadCsv(results.rows);
+      await downloadCsv(results.rows);
     });
   },
   unmount() {
