@@ -74,7 +74,7 @@ async function downloadCsv(rows) {
   URL.revokeObjectURL(url);
 }
 
-async function downloadXlsx() {
+async function downloadXlsxFallback() {
   try {
     const blob = await exportClassifyResults(overwritePredictions, overwriteSpecificRisk);
     const url = URL.createObjectURL(blob);
@@ -87,6 +87,38 @@ async function downloadXlsx() {
     URL.revokeObjectURL(url);
   } catch (error) {
     alert(error.message);
+  }
+}
+
+async function downloadXlsxWithPicker() {
+  if (!window.showSaveFilePicker) {
+    await downloadXlsxFallback();
+    return;
+  }
+
+  try {
+    const blob = await exportClassifyResults(overwritePredictions, overwriteSpecificRisk);
+    const suggestedName = `results_classified_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const handle = await window.showSaveFilePicker({
+      suggestedName,
+      types: [
+        {
+          description: "Excel file",
+          accept: {
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+          },
+        },
+      ],
+    });
+    const writable = await handle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      alert("Save canceled.");
+      return;
+    }
+    alert("Unable to save the XLSX file.");
   }
 }
 
@@ -257,7 +289,7 @@ export default {
         alert("No results available to export.");
         return;
       }
-      await downloadXlsx();
+      await downloadXlsxWithPicker();
     });
     const overwritePredictionsToggle = rootEl.querySelector("#results-overwrite-predictions");
     const overwriteSpecificToggle = rootEl.querySelector("#results-overwrite-specific");
