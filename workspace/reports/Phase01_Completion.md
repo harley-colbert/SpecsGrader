@@ -1,32 +1,33 @@
-# Phase 01 Completion Report
+# Phase 01 Completion Report (v4.10)
 
 ## Summary
-- Extended training dataset health stats with class distributions, percentages, warnings, and blocking errors for imbalance checks.
-- Added a dataset health API endpoint and integrated Train Step 2 UI to display distributions, warnings, and blocking issues with gating.
-- Added dataset health fixtures and automated tests for balanced, missing, and unlabeled datasets.
+- Added a centralized XLSX contract module with column mappings and risk-level helpers.
+- Wired backend services to the shared contract for column indices and risk-level validation.
+- Added Train/Classify UI mapping help text and updated docs to match the D/E/F/G contract.
 
 ## Key files touched
+- `backend/app/config/xlsx_contract.py`
+- `backend/app/services/ingest_service.py`
+- `backend/app/services/llm_service.py`
 - `backend/app/services/training_service.py`
-- `backend/app/main.py`
-- `frontend/src/api/client.js`
 - `frontend/src/panes/trainPane.js`
+- `frontend/src/panes/classifyPane.js`
 - `frontend/styles.css`
-- `tests/test_dataset_health.py`
-- `tests/fixtures/training_balanced.csv`
-- `tests/fixtures/training_missing_extreme.csv`
-- `tests/fixtures/training_unlabeled.csv`
+- `README.md`
+- `tests/test_risk_level_ordering.py`
+- `tests/test_risk_level_normalization.py`
 
 ## Tests run
-- `python -m pytest -q` (pass; warnings from sklearn)
+- `python -m pytest -q` (pass; 63 passed, 1 skipped, 87 warnings)
 
 ## UI evidence
-- Train Step 2 Dataset Health panel: attempted browser-based capture, but Playwright crashed in this environment (headless Chromium segfault). No screenshot artifact available.
+- Train pane mapping snippet: `browser:/tmp/codex_browser_invocations/808dabb0769e6e00/artifacts/artifacts/phase01-train.png`
+- Classify pane mapping snippet: `browser:/tmp/codex_browser_invocations/808dabb0769e6e00/artifacts/artifacts/phase01-classify.png`
 
 ## Success checklist
-- ✅ Train Step 2 shows distributions (counts + %). (Rendered in new Dataset Health panel for risk level and department.)
-- ✅ Missing/rare classes produce warnings. (Warnings emitted for missing/rare classes in dataset health stats.)
-- ✅ No-labeled-data produces blocking error and disables later steps. (Blocking errors surfaced and training gated in Step 2 UI.)
-- ✅ Tests cover balanced vs missing vs unlabeled datasets. (New dataset health tests and fixtures added.)
+- ✅ A single mapping module exists and is imported everywhere XLSX columns are referenced. (See `backend/app/config/xlsx_contract.py` and updated ingest/LLM/training imports.)
+- ✅ Risk level ordering and medium+ logic are explicit and tested. (New risk ordering/normalization tests.)
+- ✅ UI/help text updated to reflect D/E/F/G mapping exactly. (Train/Classify mapping snippets and README updated.)
 
 ## Follow-ups
 - None.

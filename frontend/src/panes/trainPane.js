@@ -673,6 +673,10 @@ function render(state) {
       <span>${readinessLabels.training}</span>
     </div>
     <p>Load a training file, configure rules, train models, and build a vector store.</p>
+    <div class="card">
+      <h3>Excel Mapping</h3>
+      <p class="muted">Column D = input spec text, Column E = specific risk (auto-generated for medium+), Column F = risk level, Column G = department.</p>
+    </div>
     <div class="card quickstart-card">
       <div class="quickstart-header">
         <h3>What do you want to do?</h3>
@@ -1001,7 +1005,7 @@ function render(state) {
         ${trainingDataError
           ? `
         <div class="train-error">
-            We found data rows but no labels in columns F and G starting at row 5. Please ensure the file includes labeled rows with valid risk level and department values.
+            We found data rows but no labels in columns F and G (row 5+). Please ensure the file includes labeled rows with valid risk level and department values.
           </div>
           `
           : hasBlockingErrors
@@ -1923,8 +1927,9 @@ function renderPreview(rows) {
   const header = `
     <div class="table-header">
       <span>Row</span>
-      <span>Risk text</span>
-      <span>Level</span>
+      <span>Spec text</span>
+      <span>Specific risk</span>
+      <span>Risk level</span>
       <span>Department</span>
     </div>`;
   const body = rows
@@ -1932,9 +1937,10 @@ function renderPreview(rows) {
       (row) => `
         <div class="table-row">
           <span>${row.source_row}</span>
-          <span>${row.risk_text || ""}</span>
-          <span>${row.label_level || ""}</span>
-          <span>${row.label_dept || ""}</span>
+          <span>${row.spec_text || ""}</span>
+          <span>${row.specific_risk_existing || ""}</span>
+          <span>${row.risk_level_existing || ""}</span>
+          <span>${row.dept_existing || ""}</span>
         </div>`
     )
     .join("");

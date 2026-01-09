@@ -1,28 +1,36 @@
-# Phase 02 Completion Report
+# Phase 02 Completion Report (v4.10)
 
 ## Summary
-- Extended training and evaluation metrics to include per-class precision, per-class F1, weighted F1, labels, and confusion matrices.
-- Updated Train pane metrics rendering to show per-class tables, summary cards, and confusion matrices with recall callouts for high/extreme classes.
-- Added automated schema tests and updated evaluation tests to cover the expanded metrics payload.
+- Updated XLSX/CSV ingestion to read spec text from column D, existing risk/labels from E/F/G, normalize values, and skip blank D rows.
+- Expanded preview tables in Train/Classify to display the new D/E/F/G mapping fields.
+- Added a v4.10 XLSX fixture and tests validating parsing, skip logic, and missing-column handling, plus updated CSV fixtures for the new contract.
 
 ## Key files touched
-- `backend/app/services/training_service.py`
+- `backend/app/services/ingest_service.py`
 - `frontend/src/panes/trainPane.js`
-- `frontend/styles.css`
-- `tests/test_evaluate_mode.py`
-- `tests/test_metrics_schema.py`
-- `workspace/reports/Phase02_Completion.md`
+- `frontend/src/panes/classifyPane.js`
+- `tests/test_xlsx_reader_contract_v410.py`
+- `tests/test_ingest_service.py`
+- `tests/test_explanations_trace.py`
+- `tests/fixtures/xlsx/contract_v410_input.xlsx`
+- `tests/fixtures/classify_sample.csv`
+- `tests/fixtures/training_sample.csv`
+- `tests/fixtures/training_balanced.csv`
+- `tests/fixtures/training_missing_extreme.csv`
+- `tests/fixtures/training_unlabeled.csv`
+- `tests/fixtures/insights_synthetic.csv`
 
 ## Tests run
-- `python -m pytest -q` (pass; warnings from sklearn)
+- `python -m pytest -q` (pass; 65 passed, 1 skipped, 87 warnings)
 
 ## UI evidence
-- Attempted to capture Train pane metrics with Playwright, but the browser tool timed out in this environment (no screenshot artifact produced).
+- Attempted to capture Train/Classify previews with Playwright, but Chromium crashed in this environment (no screenshot artifacts produced).
 
 ## Success checklist
-- ✅ Validation UI shows per-class Precision/Recall/F1 for risk and dept. (Rendered in updated metrics tables.)
-- ✅ Confusion matrices render correctly and match backend labels. (Matrix renderer uses label list and matrix size.)
-- ✅ Backend metrics schema is covered by automated tests. (New schema test added; evaluate tests updated.)
+- ✅ XLSX reader uses the new D/E/F/G mapping. (Spec text and existing risk/labels parsed into new fields.)
+- ✅ Blank D rows are skipped. (Skip logic in ingest service; validated in v4.10 XLSX test.)
+- ✅ Reader does not crash on missing optional columns or empty cells. (Missing-column test added.)
+- ✅ Automated tests validate parsing behavior with an XLSX fixture. (New v4.10 XLSX fixture + tests.)
 
 ## Follow-ups
 - None.

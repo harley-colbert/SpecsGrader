@@ -2,8 +2,8 @@
 ,,,,,,
 ,,,,,,
 ,,,,,,
-,,,,Risk text A,none,mechanical
-,,,,Risk text B,low,electrical
-,,,,Risk text C,medium,controls
-,,,,Risk text D,high,project_management
-,,,,Risk text E,low,mechanical
+,,,Risk text A,Risk text A,none,mechanical
+,,,Risk text B,Risk text B,low,electrical
+,,,Risk text C,Risk text C,medium,controls
+,,,Risk text D,Risk text D,high,project_management
+,,,Risk text E,Risk text E,low,mechanical

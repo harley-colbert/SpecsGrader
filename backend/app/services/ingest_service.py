@@ -3,7 +3,16 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
-RISK_LEVELS = {"none", "low", "medium", "high", "extreme"}
+from backend.app.config.xlsx_contract import (
+    DEPT_COL,
+    RISK_LEVEL_COL,
+    RISK_LEVELS,
+    SPEC_TEXT_COL,
+    SPECIFIC_RISK_COL,
+    column_index,
+    normalize_risk_level,
+)
+
 DEPARTMENTS = {"mechanical", "electrical", "controls", "project_management"}
 
 
@@ -37,15 +46,30 @@ def _to_text(value: object) -> str:
 
 def _canonical_rows(df: pd.DataFrame, training: bool) -> List[Dict[str, Optional[str]]]:
     rows: List[Dict[str, Optional[str]]] = []
+    spec_text_index = column_index(SPEC_TEXT_COL)
+    risk_text_index = column_index(SPECIFIC_RISK_COL)
+    risk_level_index = column_index(RISK_LEVEL_COL)
+    dept_index = column_index(DEPT_COL)
     for idx, row in df.iterrows():
+        spec_text = _to_text(row[spec_text_index]) if len(row) > spec_text_index else ""
+        if not spec_text.strip():
+            continue
+        specific_risk = _to_text(row[risk_text_index]) if len(row) > risk_text_index else ""
+        risk_level_raw = _to_text(row[risk_level_index]) if len(row) > risk_level_index else ""
+        risk_level = normalize_risk_level(risk_level_raw) if risk_level_raw else None
+        dept = _to_text(row[dept_index]) if len(row) > dept_index else ""
         canonical: Dict[str, Optional[str]] = {
             "source_row": idx + 5,  # Excel 1-indexed row number
             "id": None,
-            "risk_text": _to_text(row[4]) if len(row) > 4 else "",
+            "spec_text": spec_text,
+            "specific_risk_existing": specific_risk,
+            "risk_level_existing": risk_level or "",
+            "dept_existing": dept.lower(),
+            "risk_text": specific_risk,
         }
         if training:
-            canonical["label_level"] = _to_text(row[5]) if len(row) > 5 else ""
-            canonical["label_dept"] = _to_text(row[6]) if len(row) > 6 else ""
+            canonical["label_level"] = risk_level or ""
+            canonical["label_dept"] = dept.lower()
         rows.append(canonical)
     return rows
 
@@ -64,11 +88,11 @@ def load_training_dataset(path: str) -> Dict[str, object]:
     }
 
     for row in rows:
-        risk_text = row.get("risk_text", "") or ""
-        if not risk_text.strip():
+        spec_text = row.get("spec_text", "") or ""
+        if not spec_text.strip():
             summary["missing_risk_text"] += 1
-        level = (row.get("label_level") or "").lower()
-        dept = (row.get("label_dept") or "").lower()
+        level = normalize_risk_level(row.get("label_level") or "")
+        dept = _to_text(row.get("label_dept") or "").lower()
         if not level or not dept:
             summary["missing_labels"] += 1
         if level and level not in RISK_LEVELS:
@@ -90,8 +114,8 @@ def load_classify_dataset(path: str) -> Dict[str, object]:
     }
 
     for row in rows:
-        risk_text = row.get("risk_text", "") or ""
-        if not risk_text.strip():
+        spec_text = row.get("spec_text", "") or ""
+        if not spec_text.strip():
             summary["missing_risk_text"] += 1
 
     return {"rows": rows, "summary": summary}

@@ -13,6 +13,7 @@ from sklearn.metrics import confusion_matrix
 from .settings import get_settings
 from .state import AppState, get_state
 from .services.ingest_service import load_classify_dataset, load_training_dataset
+from .services.xlsx_output_service import write_classify_predictions_to_xlsx
 from .services.rule_service import RuleService
 from .services.training_service import TrainingParams, TrainingService
 from .services.vector_service import VectorService
@@ -35,7 +36,7 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
 
     settings = get_settings()
-    app = FastAPI(title="SpecsGrader", version="4.9.0")
+    app = FastAPI(title="SpecsGrader", version="4.10.0")
     app_state: AppState = get_state()
 
     frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
@@ -165,10 +166,12 @@ def create_app() -> FastAPI:
         try:
             if mode == "train":
                 dataset = load_training_dataset(safe_path)
+                dataset["source_path"] = safe_path
                 app_state.training_dataset = dataset
                 app_state.data_loaded["train"] = True
             else:
                 dataset = load_classify_dataset(safe_path)
+                dataset["source_path"] = safe_path
                 app_state.classify_dataset = dataset
                 app_state.data_loaded["classify"] = True
         except Exception as exc:  # noqa: BLE001
@@ -284,7 +287,7 @@ def create_app() -> FastAPI:
         results: list[Dict[str, Any]] = []
 
         for idx, row in enumerate(rows):
-            text = str(row.get("risk_text") or "")
+            text = str(row.get("spec_text") or row.get("risk_text") or "")
             expected_level = str(row.get("label_level") or "")
             expected_dept = str(row.get("label_dept") or "")
             pred = model_inference_service.predict(text)
@@ -661,7 +664,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail="Classify dataset empty")
 
         def worker(row: Dict[str, Any]) -> Dict[str, Any]:
-            text = row.get("risk_text", "")
+            text = row.get("spec_text", "") or row.get("risk_text", "")
             method_outputs: Dict[str, Dict[str, Any]] = {}
             if enabled.get("rules"):
                 rules_pred = rule_service.predict(text)
@@ -749,6 +752,8 @@ def create_app() -> FastAPI:
             below_threshold = aggregated["conf_level"] < level_threshold or aggregated["conf_dept"] < dept_threshold
 
             return {
+                "source_row": row.get("source_row"),
+                "spec_text": row.get("spec_text", ""),
                 "risk_text": text,
                 "pred_level": aggregated["pred_level"],
                 "pred_dept": aggregated["pred_dept"],
@@ -774,6 +779,34 @@ def create_app() -> FastAPI:
     async def classify_cancel() -> Dict[str, Any]:
         classify_job.cancel()
         return classify_job.current_status()
+
+    @app.post("/api/classify/export", response_class=FileResponse)
+    async def classify_export(payload: Dict[str, Any] = Body(None)) -> FileResponse:
+        if app_state.classify_dataset is None:
+            raise HTTPException(status_code=400, detail="No classify dataset loaded")
+        source_path = app_state.classify_dataset.get("source_path")
+        if not source_path:
+            raise HTTPException(status_code=400, detail="Classify source path unavailable")
+        results = getattr(app_state, "results_rows", []) or []
+        if not results:
+            raise HTTPException(status_code=400, detail="No classify results available")
+        overwrite_predictions = True
+        overwrite_specific_risk = True
+        if payload and "overwrite_predictions" in payload:
+            overwrite_predictions = bool(payload.get("overwrite_predictions"))
+        if payload and "overwrite_specific_risk" in payload:
+            overwrite_specific_risk = bool(payload.get("overwrite_specific_risk"))
+        output_path = write_classify_predictions_to_xlsx(
+            source_path,
+            results,
+            overwrite_predictions=overwrite_predictions,
+            overwrite_specific_risk=overwrite_specific_risk,
+        )
+        return FileResponse(
+            output_path,
+            filename=output_path.name,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
 
     @app.get("/api/results/rows", response_class=JSONResponse)
     async def results_rows(limit: int = 20, offset: int = 0) -> Dict[str, Any]:

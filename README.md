@@ -1,9 +1,9 @@
-# SpecsGrader V4.9
+# SpecsGrader V4.10
 
-This repository follows the SpecsGrader plan V4.9. Run the application from the
+This repository follows the SpecsGrader plan V4.10. Run the application from the
 project root; it serves the backend and frontend on the same port and opens a
 PyWebView window to the local URL. The UI currently exposes a three-pane shell
-(Train, Classify, Results) driven by backend state, with the v4.9 Train pane UX
+ (Train, Classify, Results) driven by backend state, with the v4.10 Excel contract
 upgrade (Quick Start mode selector, Path A load & classify flow, and Path B
 build/update stepper).
 
@@ -65,8 +65,8 @@ python -m pytest -q
 ## File format rules
 - Inputs: CSV or XLSX.
 - XLSX sheets: first sheet whose name contains “Standards Risk Matrix”.
-- Data starts on row 5 (1-indexed). Column E = risk text, Column F = risk level
-  (train), Column G = department (train).
+- Data starts on row 5 (1-indexed). Column D = spec text, Column E = specific risk
+  (auto-generated for medium+), Column F = risk level (train), Column G = department (train).
 
 ## Export
 `/api/export/csv` should emit a CSV preserving original columns and appending:

@@ -2,13 +2,13 @@
 ,,,,,,
 ,,,,,,
 ,,,,,,
-,,,,Risk text A,none,mechanical
-,,,,Risk text B,none,electrical
-,,,,Risk text C,low,mechanical
-,,,,Risk text D,low,electrical
-,,,,Risk text E,medium,controls
-,,,,Risk text F,medium,controls
-,,,,Risk text G,high,project_management
-,,,,Risk text H,high,project_management
-,,,,Risk text I,extreme,mechanical
-,,,,Risk text J,extreme,electrical
+,,,Risk text A,Risk text A,none,mechanical
+,,,Risk text B,Risk text B,none,electrical
+,,,Risk text C,Risk text C,low,mechanical
+,,,Risk text D,Risk text D,low,electrical
+,,,Risk text E,Risk text E,medium,controls
+,,,Risk text F,Risk text F,medium,controls
+,,,Risk text G,Risk text G,high,project_management
+,,,Risk text H,Risk text H,high,project_management
+,,,Risk text I,Risk text I,extreme,mechanical
+,,,Risk text J,Risk text J,extreme,electrical
