@@ -3,6 +3,48 @@ import { fetchResults } from "../api/client.js";
 let rootEl = null;
 let results = null;
 
+function csvEscape(value) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  const text = String(value);
+  if (/[",\n]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+function buildResultsCsv(rows) {
+  const headers = [
+    "source_row",
+    "risk_text",
+    "pred_level",
+    "pred_dept",
+    "conf_level",
+    "conf_dept",
+    "below_threshold",
+  ];
+  const lines = [headers.join(",")];
+  rows.forEach((row) => {
+    const line = headers.map((key) => csvEscape(row[key])).join(",");
+    lines.push(line);
+  });
+  return `${lines.join("\n")}\n`;
+}
+
+function downloadCsv(rows) {
+  const csv = buildResultsCsv(rows);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "results.csv";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 function renderEvidenceList(items, formatter) {
   if (!items || !items.length) {
     return `<p class="muted">None</p>`;
@@ -75,6 +117,9 @@ function renderContent() {
     return `
       <h2>Results</h2>
       <p>Results will appear here after a classify job runs.</p>
+      <div class="rule-actions">
+        <button id="results-export" disabled>Export CSV</button>
+      </div>
       <div class="table-placeholder table-5">
         ${header}
         <div class="table-row muted">No results yet</div>
@@ -112,6 +157,9 @@ function renderContent() {
   return `
     <h2>Results</h2>
     <p>Aggregated predictions from enabled methods.</p>
+    <div class="rule-actions">
+      <button id="results-export">Export CSV</button>
+    </div>
     <div class="table-placeholder table-5">
       ${header}
       ${body}
@@ -140,6 +188,14 @@ export default {
       // ignore
     }
     rootEl.innerHTML = renderContent();
+    const exportBtn = rootEl.querySelector("#results-export");
+    exportBtn?.addEventListener("click", () => {
+      if (!results?.rows?.length) {
+        alert("No results available to export.");
+        return;
+      }
+      downloadCsv(results.rows);
+    });
   },
   unmount() {
     if (rootEl && rootEl.parentElement) {
