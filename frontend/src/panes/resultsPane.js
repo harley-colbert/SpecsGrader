@@ -1,7 +1,9 @@
-import { fetchResults } from "../api/client.js";
+import { fetchResults, exportClassifyResults } from "../api/client.js";
 
 let rootEl = null;
 let results = null;
+let overwritePredictions = true;
+let overwriteSpecificRisk = true;
 
 function csvEscape(value) {
   if (value === null || value === undefined) {
@@ -70,6 +72,22 @@ async function downloadCsv(rows) {
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
+}
+
+async function downloadXlsx() {
+  try {
+    const blob = await exportClassifyResults(overwritePredictions, overwriteSpecificRisk);
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "classified_output.xlsx";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    alert(error.message);
+  }
 }
 
 function renderEvidenceList(items, formatter) {
@@ -146,6 +164,11 @@ function renderContent() {
       <p>Results will appear here after a classify job runs.</p>
       <div class="rule-actions">
         <button id="results-export" disabled>Export CSV</button>
+        <button id="results-export-xlsx" disabled>Download updated XLSX</button>
+      </div>
+      <div class="rule-actions">
+        <label class="toggle"><input type="checkbox" id="results-overwrite-predictions" ${overwritePredictions ? "checked" : ""} />Overwrite existing F/G values</label>
+        <label class="toggle"><input type="checkbox" id="results-overwrite-specific" ${overwriteSpecificRisk ? "checked" : ""} />Overwrite Column E specific risk (medium+)</label>
       </div>
       <div class="table-placeholder table-5">
         ${header}
@@ -186,6 +209,11 @@ function renderContent() {
     <p>Aggregated predictions from enabled methods.</p>
     <div class="rule-actions">
       <button id="results-export">Export CSV</button>
+      <button id="results-export-xlsx">Download updated XLSX</button>
+    </div>
+    <div class="rule-actions">
+      <label class="toggle"><input type="checkbox" id="results-overwrite-predictions" ${overwritePredictions ? "checked" : ""} />Overwrite existing F/G values</label>
+      <label class="toggle"><input type="checkbox" id="results-overwrite-specific" ${overwriteSpecificRisk ? "checked" : ""} />Overwrite Column E specific risk (medium+)</label>
     </div>
     <div class="table-placeholder table-5">
       ${header}
@@ -222,6 +250,22 @@ export default {
         return;
       }
       await downloadCsv(results.rows);
+    });
+    const exportXlsxBtn = rootEl.querySelector("#results-export-xlsx");
+    exportXlsxBtn?.addEventListener("click", async () => {
+      if (!results?.rows?.length) {
+        alert("No results available to export.");
+        return;
+      }
+      await downloadXlsx();
+    });
+    const overwritePredictionsToggle = rootEl.querySelector("#results-overwrite-predictions");
+    const overwriteSpecificToggle = rootEl.querySelector("#results-overwrite-specific");
+    overwritePredictionsToggle?.addEventListener("change", () => {
+      overwritePredictions = !!overwritePredictionsToggle.checked;
+    });
+    overwriteSpecificToggle?.addEventListener("change", () => {
+      overwriteSpecificRisk = !!overwriteSpecificToggle.checked;
     });
   },
   unmount() {
