@@ -1,0 +1,648 @@
+{
+  "created_at": "2026-01-09T16:36:22.478856+00:00",
+  "training_record": {
+    "trained_at": "2026-01-09T16:36:22.478856+00:00",
+    "dataset_snapshot_hash": "243d1640e4d02e9a8f85cb55003afd617bfd81fa781c55d8494b8652d5b7efd9",
+    "training_params": {
+      "oversample_enabled": false,
+      "oversample_cap_ratio": 0.3,
+      "min_recall_per_class": 0.5,
+      "calibration_method": "sigmoid",
+      "cv_folds": 5,
+      "use_class_weight_balanced": true
+    },
+    "cv_summary": {
+      "level": {
+        "macro_f1": 0.2938095238095238,
+        "weighted_f1": 0.46219047619047615,
+        "balanced_accuracy": 0.34444444444444444
+      },
+      "dept": {
+        "macro_f1": 0.5138095238095238,
+        "weighted_f1": 0.5057142857142857,
+        "balanced_accuracy": 0.5833333333333333
+      }
+    },
+    "artifacts": [
+      "bundle_meta.json",
+      "dept_insights_model.joblib",
+      "dept_model.joblib",
+      "level_insights_model.joblib",
+      "level_model.joblib"
+    ]
+  },
+  "trained_on_rows": 24,
+  "label_distribution": {
+    "level": {
+      "low": 6,
+      "medium": 6,
+      "none": 14
+    },
+    "dept": {
+      "controls": 13,
+      "mechanical": 11
+    }
+  },
+  "imbalance": {
+    "class_weight_balanced": true,
+    "oversample_enabled": false,
+    "oversample_cap_ratio": 0.3,
+    "pre_distribution": {
+      "level": {
+        "none": 14,
+        "low": 6,
+        "medium": 6
+      },
+      "dept": {
+        "controls": 13,
+        "mechanical": 11
+      }
+    },
+    "post_distribution": {
+      "level": {
+        "none": 14,
+        "low": 6,
+        "medium": 6
+      },
+      "dept": {
+        "controls": 13,
+        "mechanical": 11
+      }
+    }
+  },
+  "metrics": {
+    "level": {
+      "macro_f1": 0.3333333333333333,
+      "weighted_f1": 0.5384615384615384,
+      "balanced_accuracy": 0.3333333333333333,
+      "labels": [
+        "low",
+        "medium",
+        "none"
+      ],
+      "per_class_precision": {
+        "low": 0.0,
+        "medium": 0.0,
+        "none": 1.0
+      },
+      "per_class_recall": {
+        "low": 0.0,
+        "medium": 0.0,
+        "none": 1.0
+      },
+      "per_class_f1": {
+        "low": 0.0,
+        "medium": 0.0,
+        "none": 1.0
+      },
+      "confusion_matrix": [
+        [
+          0,
+          6,
+          0
+        ],
+        [
+          6,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          14
+        ]
+      ]
+    },
+    "dept": {
+      "macro_f1": 1.0,
+      "weighted_f1": 1.0,
+      "balanced_accuracy": 1.0,
+      "labels": [
+        "controls",
+        "mechanical"
+      ],
+      "per_class_precision": {
+        "controls": 1.0,
+        "mechanical": 1.0
+      },
+      "per_class_recall": {
+        "controls": 1.0,
+        "mechanical": 1.0
+      },
+      "per_class_f1": {
+        "controls": 1.0,
+        "mechanical": 1.0
+      },
+      "confusion_matrix": [
+        [
+          13,
+          0
+        ],
+        [
+          0,
+          11
+        ]
+      ]
+    }
+  },
+  "cv_metrics": {
+    "level": {
+      "averages": {
+        "macro_f1": 0.2938095238095238,
+        "weighted_f1": 0.46219047619047615,
+        "balanced_accuracy": 0.34444444444444444
+      },
+      "folds": [
+        {
+          "macro_f1": 0.2222222222222222,
+          "weighted_f1": 0.3333333333333333,
+          "balanced_accuracy": 0.3333333333333333,
+          "labels": [
+            "low",
+            "medium",
+            "none"
+          ],
+          "per_class_precision": {
+            "low": 0.0,
+            "medium": 0.0,
+            "none": 0.5
+          },
+          "per_class_recall": {
+            "low": 0.0,
+            "medium": 0.0,
+            "none": 1.0
+          },
+          "per_class_f1": {
+            "low": 0.0,
+            "medium": 0.0,
+            "none": 0.6666666666666666
+          },
+          "confusion_matrix": [
+            [
+              0,
+              0,
+              2
+            ],
+            [
+              0,
+              0,
+              1
+            ],
+            [
+              0,
+              0,
+              3
+            ]
+          ]
+        },
+        {
+          "macro_f1": 0.2857142857142857,
+          "weighted_f1": 0.5142857142857142,
+          "balanced_accuracy": 0.3333333333333333,
+          "labels": [
+            "low",
+            "medium",
+            "none"
+          ],
+          "per_class_precision": {
+            "low": 0.0,
+            "medium": 0.0,
+            "none": 0.75
+          },
+          "per_class_recall": {
+            "low": 0.0,
+            "medium": 0.0,
+            "none": 1.0
+          },
+          "per_class_f1": {
+            "low": 0.0,
+            "medium": 0.0,
+            "none": 0.8571428571428571
+          },
+          "confusion_matrix": [
+            [
+              0,
+              0,
+              1
+            ],
+            [
+              1,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              3
+            ]
+          ]
+        },
+        {
+          "macro_f1": 0.25,
+          "weighted_f1": 0.45,
+          "balanced_accuracy": 0.3333333333333333,
+          "labels": [
+            "low",
+            "medium",
+            "none"
+          ],
+          "per_class_precision": {
+            "low": 0.0,
+            "medium": 0.0,
+            "none": 0.6
+          },
+          "per_class_recall": {
+            "low": 0.0,
+            "medium": 0.0,
+            "none": 1.0
+          },
+          "per_class_f1": {
+            "low": 0.0,
+            "medium": 0.0,
+            "none": 0.75
+          },
+          "confusion_matrix": [
+            [
+              0,
+              0,
+              1
+            ],
+            [
+              0,
+              0,
+              1
+            ],
+            [
+              0,
+              0,
+              3
+            ]
+          ]
+        },
+        {
+          "macro_f1": 0.26666666666666666,
+          "weighted_f1": 0.4800000000000001,
+          "balanced_accuracy": 0.2222222222222222,
+          "labels": [
+            "low",
+            "medium",
+            "none"
+          ],
+          "per_class_precision": {
+            "low": 0.0,
+            "medium": 0.0,
+            "none": 1.0
+          },
+          "per_class_recall": {
+            "low": 0.0,
+            "medium": 0.0,
+            "none": 0.6666666666666666
+          },
+          "per_class_f1": {
+            "low": 0.0,
+            "medium": 0.0,
+            "none": 0.8
+          },
+          "confusion_matrix": [
+            [
+              0,
+              1,
+              0
+            ],
+            [
+              1,
+              0,
+              0
+            ],
+            [
+              1,
+              0,
+              2
+            ]
+          ]
+        },
+        {
+          "macro_f1": 0.4444444444444444,
+          "weighted_f1": 0.5333333333333333,
+          "balanced_accuracy": 0.5,
+          "labels": [
+            "low",
+            "medium",
+            "none"
+          ],
+          "per_class_precision": {
+            "low": 0.0,
+            "medium": 1.0,
+            "none": 0.5
+          },
+          "per_class_recall": {
+            "low": 0.0,
+            "medium": 0.5,
+            "none": 1.0
+          },
+          "per_class_f1": {
+            "low": 0.0,
+            "medium": 0.6666666666666666,
+            "none": 0.6666666666666666
+          },
+          "confusion_matrix": [
+            [
+              0,
+              0,
+              1
+            ],
+            [
+              0,
+              1,
+              1
+            ],
+            [
+              0,
+              0,
+              2
+            ]
+          ]
+        }
+      ],
+      "labels": [
+        "low",
+        "medium",
+        "none"
+      ],
+      "per_class_precision": {
+        "low": 0.0,
+        "medium": 0.2,
+        "none": 0.67
+      },
+      "per_class_recall": {
+        "low": 0.0,
+        "medium": 0.1,
+        "none": 0.9333333333333332
+      },
+      "per_class_f1": {
+        "low": 0.0,
+        "medium": 0.13333333333333333,
+        "none": 0.748095238095238
+      },
+      "confusion_matrix": [
+        [
+          0.0,
+          1.0,
+          5.0
+        ],
+        [
+          2.0,
+          1.0,
+          3.0
+        ],
+        [
+          1.0,
+          0.0,
+          13.0
+        ]
+      ]
+    },
+    "dept": {
+      "averages": {
+        "macro_f1": 0.5138095238095238,
+        "weighted_f1": 0.5057142857142857,
+        "balanced_accuracy": 0.5833333333333333
+      },
+      "folds": [
+        {
+          "macro_f1": 0.2857142857142857,
+          "weighted_f1": 0.22857142857142856,
+          "balanced_accuracy": 0.5,
+          "labels": [
+            "controls",
+            "mechanical"
+          ],
+          "per_class_precision": {
+            "controls": 0.4,
+            "mechanical": 0.0
+          },
+          "per_class_recall": {
+            "controls": 1.0,
+            "mechanical": 0.0
+          },
+          "per_class_f1": {
+            "controls": 0.5714285714285714,
+            "mechanical": 0.0
+          },
+          "confusion_matrix": [
+            [
+              2,
+              0
+            ],
+            [
+              3,
+              0
+            ]
+          ]
+        },
+        {
+          "macro_f1": 0.8,
+          "weighted_f1": 0.8,
+          "balanced_accuracy": 0.8333333333333333,
+          "labels": [
+            "controls",
+            "mechanical"
+          ],
+          "per_class_precision": {
+            "controls": 1.0,
+            "mechanical": 0.6666666666666666
+          },
+          "per_class_recall": {
+            "controls": 0.6666666666666666,
+            "mechanical": 1.0
+          },
+          "per_class_f1": {
+            "controls": 0.8,
+            "mechanical": 0.8
+          },
+          "confusion_matrix": [
+            [
+              2,
+              1
+            ],
+            [
+              0,
+              2
+            ]
+          ]
+        },
+        {
+          "macro_f1": 0.16666666666666666,
+          "weighted_f1": 0.2,
+          "balanced_accuracy": 0.16666666666666666,
+          "labels": [
+            "controls",
+            "mechanical"
+          ],
+          "per_class_precision": {
+            "controls": 0.3333333333333333,
+            "mechanical": 0.0
+          },
+          "per_class_recall": {
+            "controls": 0.3333333333333333,
+            "mechanical": 0.0
+          },
+          "per_class_f1": {
+            "controls": 0.3333333333333333,
+            "mechanical": 0.0
+          },
+          "confusion_matrix": [
+            [
+              1,
+              2
+            ],
+            [
+              2,
+              0
+            ]
+          ]
+        },
+        {
+          "macro_f1": 0.5833333333333333,
+          "weighted_f1": 0.5666666666666667,
+          "balanced_accuracy": 0.6666666666666666,
+          "labels": [
+            "controls",
+            "mechanical"
+          ],
+          "per_class_precision": {
+            "controls": 1.0,
+            "mechanical": 0.5
+          },
+          "per_class_recall": {
+            "controls": 0.3333333333333333,
+            "mechanical": 1.0
+          },
+          "per_class_f1": {
+            "controls": 0.5,
+            "mechanical": 0.6666666666666666
+          },
+          "confusion_matrix": [
+            [
+              1,
+              2
+            ],
+            [
+              0,
+              2
+            ]
+          ]
+        },
+        {
+          "macro_f1": 0.7333333333333334,
+          "weighted_f1": 0.7333333333333334,
+          "balanced_accuracy": 0.75,
+          "labels": [
+            "controls",
+            "mechanical"
+          ],
+          "per_class_precision": {
+            "controls": 0.6666666666666666,
+            "mechanical": 1.0
+          },
+          "per_class_recall": {
+            "controls": 1.0,
+            "mechanical": 0.5
+          },
+          "per_class_f1": {
+            "controls": 0.8,
+            "mechanical": 0.6666666666666666
+          },
+          "confusion_matrix": [
+            [
+              2,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        }
+      ],
+      "labels": [
+        "controls",
+        "mechanical"
+      ],
+      "per_class_precision": {
+        "controls": 0.6799999999999999,
+        "mechanical": 0.4333333333333333
+      },
+      "per_class_recall": {
+        "controls": 0.6666666666666666,
+        "mechanical": 0.5
+      },
+      "per_class_f1": {
+        "controls": 0.6009523809523809,
+        "mechanical": 0.42666666666666664
+      },
+      "confusion_matrix": [
+        [
+          8.0,
+          5.0
+        ],
+        [
+          6.0,
+          5.0
+        ]
+      ]
+    }
+  },
+  "label_policy": {
+    "version": "1.0",
+    "risk_levels": [
+      {
+        "id": "none",
+        "label": "NONE",
+        "description": "No risk identified or not applicable."
+      },
+      {
+        "id": "low",
+        "label": "LOW",
+        "description": "Low impact risk with straightforward mitigation."
+      },
+      {
+        "id": "medium",
+        "label": "MEDIUM",
+        "description": "Moderate impact risk requiring planning and tracking."
+      },
+      {
+        "id": "high",
+        "label": "HIGH",
+        "description": "High impact risk that needs active mitigation and escalation."
+      },
+      {
+        "id": "extreme",
+        "label": "EXTREME",
+        "description": "Critical risk likely to affect schedule, scope, or safety."
+      }
+    ],
+    "departments": [
+      {
+        "id": "mechanical",
+        "label": "MECHANICAL",
+        "description": "Mechanical design, tooling, fabrication, or structural risks."
+      },
+      {
+        "id": "electrical",
+        "label": "ELECTRICAL",
+        "description": "Electrical design, power distribution, or wiring risks."
+      },
+      {
+        "id": "controls",
+        "label": "CONTROLS",
+        "description": "Controls, PLC, software, or automation logic risks."
+      },
+      {
+        "id": "project_management",
+        "label": "PROJECT_MANAGEMENT",
+        "description": "Schedule, budget, scope, or coordination risks."
+      }
+    ]
+  }
+}

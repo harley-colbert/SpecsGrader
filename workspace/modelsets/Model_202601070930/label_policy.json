@@ -1,0 +1,52 @@
+{
+  "version": "1.0",
+  "risk_levels": [
+    {
+      "id": "none",
+      "label": "NONE",
+      "description": "No risk identified or not applicable."
+    },
+    {
+      "id": "low",
+      "label": "LOW",
+      "description": "Low impact risk with straightforward mitigation."
+    },
+    {
+      "id": "medium",
+      "label": "MEDIUM",
+      "description": "Moderate impact risk requiring planning and tracking."
+    },
+    {
+      "id": "high",
+      "label": "HIGH",
+      "description": "High impact risk that needs active mitigation and escalation."
+    },
+    {
+      "id": "extreme",
+      "label": "EXTREME",
+      "description": "Critical risk likely to affect schedule, scope, or safety."
+    }
+  ],
+  "departments": [
+    {
+      "id": "mechanical",
+      "label": "MECHANICAL",
+      "description": "Mechanical design, tooling, fabrication, or structural risks."
+    },
+    {
+      "id": "electrical",
+      "label": "ELECTRICAL",
+      "description": "Electrical design, power distribution, or wiring risks."
+    },
+    {
+      "id": "controls",
+      "label": "CONTROLS",
+      "description": "Controls, PLC, software, or automation logic risks."
+    },
+    {
+      "id": "project_management",
+      "label": "PROJECT_MANAGEMENT",
+      "description": "Schedule, budget, scope, or coordination risks."
+    }
+  ]
+}

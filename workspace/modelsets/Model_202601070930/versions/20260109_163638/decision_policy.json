@@ -1,0 +1,52 @@
+{
+  "version": "1.0",
+  "weights": {
+    "model": 1.2,
+    "vector": 1.0,
+    "deep": 1.0,
+    "llm": 0.6,
+    "rules": 0.2
+  },
+  "layers": [
+    {
+      "id": "hard_rules",
+      "type": "rules_hard"
+    },
+    {
+      "id": "model",
+      "type": "model_confidence",
+      "min_confidence": 0.75
+    },
+    {
+      "id": "consensus",
+      "type": "model_vector_consensus",
+      "min_similarity": 0.45
+    },
+    {
+      "id": "vector",
+      "type": "vector_confidence",
+      "min_similarity": 0.45,
+      "min_margin": 0.1
+    },
+    {
+      "id": "deep",
+      "type": "deep_model",
+      "min_confidence": 0.7,
+      "enabled": false
+    },
+    {
+      "id": "llm",
+      "type": "llm",
+      "enabled": false
+    },
+    {
+      "id": "abstain",
+      "type": "abstain",
+      "enabled": true
+    },
+    {
+      "id": "weighted",
+      "type": "weighted"
+    }
+  ]
+}

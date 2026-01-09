@@ -621,6 +621,7 @@ function render(state) {
   const canProceedAfterTrain = step4Complete;
   const step5Complete = validationCompleted;
   const step6Complete = hasVector;
+  const canSaveSnapshot = Boolean(modelsetSelectId) && step4Complete && step5Complete && step6Complete;
   const headlineLevelF1 = Number(trainingStatus?.metrics?.level?.macro_f1 || 0).toFixed(2);
   const headlineDeptF1 = Number(trainingStatus?.metrics?.dept?.macro_f1 || 0).toFixed(2);
   const validationTotalRows = Number(validationSummary?.total_rows || 0);
@@ -1179,11 +1180,13 @@ function render(state) {
         <button id="vector-build" ${canBuildVector ? "" : "disabled"}>Build vector store</button>
       </div>
 
-      <div class="card placeholder-card" id="step-save">
-        <h3>Step 7 — Save snapshot / Export</h3>
-        <p class="muted">Save everything to a new ModelSet version you can reuse in the Classify tab.</p>
-        <button disabled>Save snapshot</button>
-      </div>
+      <div class="card" id="step-save">
+		  <h3>Step 7 — Save snapshot / Export</h3>
+		  <p class="muted">Save everything to a new ModelSet version you can reuse in the Classify tab.</p>
+		  <button id="modelset-save" ${canSaveSnapshot ? "" : "disabled"}>Save snapshot</button>
+		  <p class="muted">After saving, go back to Step 1 and use “Target version” + “Export .sgm”.</p>
+	  </div>
+
     </div>
     `}
   `;
@@ -1380,20 +1383,26 @@ function render(state) {
   }
 
   if (vectorBtn) {
-    vectorBtn.addEventListener("click", async () => {
-      try {
-        if (selectedVectorBackend === "transformer" && transformerAvailable === false) {
-          alert(`Transformer unavailable: ${transformerReason}`);
-          return;
-        }
-        const resp = await buildVectorStore(5, selectedVectorBackend);
-        vectorBuildStatus = resp.built ? `Built at ${resp.path}` : "Not built";
-        render(state);
-      } catch (error) {
-        alert(error.message);
-      }
-    });
-  }
+	  vectorBtn.addEventListener("click", async () => {
+		try {
+		  if (selectedVectorBackend === "transformer" && transformerAvailable === false) {
+			alert(`Transformer unavailable: ${transformerReason}`);
+			return;
+		  }
+
+		  const resp = await buildVectorStore(5, selectedVectorBackend);
+		  vectorBuildStatus = resp.built ? `Built at ${resp.path}` : "Not built";
+
+		  // IMPORTANT: refresh /api/state so state.capabilities.vector flips to true
+		  // which is what the stepper uses for Step 6 completion.
+		  await syncState();
+		  render(lastState);
+		} catch (error) {
+		  alert(error.message);
+		}
+	  });
+	}
+
 
   if (vectorBackendSelect) {
     vectorBackendSelect.addEventListener("change", () => {
@@ -1653,26 +1662,36 @@ function render(state) {
   }
 
   if (msSaveBtn) {
-    msSaveBtn.addEventListener("click", async () => {
-      if (!modelsetSelectId) return;
-      const notes = window.prompt("Optional notes for this version:", "") || "";
-      try {
-        await saveModelSetVersion(modelsetSelectId, {
-          notes,
-          parent_version_id: modelsetVersionSelectId || null,
-          include_bundle: true,
-          include_vector_store: true,
-          include_rules: true,
-          include_training_snapshot: true,
-        });
-        await refreshModelSets();
-        render(lastState);
-        alert("ModelSet snapshot saved.");
-      } catch (error) {
-        alert(error.message);
-      }
-    });
-  }
+	  msSaveBtn.addEventListener("click", async () => {
+		if (!modelsetSelectId) return;
+
+		const notes = window.prompt("Optional notes for this version:", "") || "";
+		try {
+		  const resp = await saveModelSetVersion(modelsetSelectId, {
+			notes,
+			parent_version_id: modelsetVersionSelectId || null,
+			include_bundle: true,
+			include_vector_store: true,
+			include_rules: true,
+			include_training_snapshot: true,
+		  });
+
+		  const newVersionId = resp?.version?.version_id || "";
+		  if (newVersionId) {
+			// preselect the new version so export becomes immediately available
+			modelsetVersionSelectId = newVersionId;
+		  }
+
+		  await refreshModelSets();
+		  render(lastState);
+
+		  alert(newVersionId ? `ModelSet snapshot saved: ${newVersionId}` : "ModelSet snapshot saved.");
+		} catch (error) {
+		  alert(error.message);
+		}
+	  });
+	}
+
 
   if (msLoadBtn) {
     msLoadBtn.addEventListener("click", async () => {

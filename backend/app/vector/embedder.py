@@ -129,11 +129,30 @@ def train_embedder(texts: List[str], config: EmbedderConfig | None = None) -> Ba
         max_features=cfg.max_features,
         ngram_range=cfg.ngram_range,
     )
+
     if cfg.model == "lsa":
         tfidf = vectorizer.fit_transform(texts)
+        n_features = int(tfidf.shape[1])
+
+        # LSA (TruncatedSVD) requires: 1 <= n_components <= n_features.
+        # Using (n_features - 1) is a common safe choice to avoid requesting
+        # a full-rank decomposition when the feature space is small.
+        if n_features <= 0:
+            # No usable vocabulary; fall back to TF-IDF.
+            fallback_cfg = EmbedderConfig(
+                model="tfidf",
+                max_features=cfg.max_features,
+                ngram_range=cfg.ngram_range,
+            )
+            return TfidfEmbedder(fallback_cfg, vectorizer)
+
+        safe_components = min(int(cfg.svd_components), max(1, n_features - 1))
+        cfg.svd_components = safe_components
+
         svd = TruncatedSVD(n_components=cfg.svd_components, random_state=42)
         svd.fit(tfidf)
         return LsaEmbedder(cfg, vectorizer, svd)
+
     if cfg.model == "transformer":
         if not cfg.transformer_model_path:
             raise RuntimeError("Transformer model path is required for transformer embeddings.")
@@ -141,8 +160,10 @@ def train_embedder(texts: List[str], config: EmbedderConfig | None = None) -> Ba
         if not model_path.exists():
             raise RuntimeError(f"Transformer model path not found: {model_path}")
         return TransformerEmbedder(cfg, model_path)
+
     tfidf = vectorizer.fit_transform(texts)
     return TfidfEmbedder(cfg, vectorizer)
+
 
 
 def load_embedder(path: Path) -> BaseEmbedder:
