@@ -1,29 +1,31 @@
-# Phase 00 Completion Report
+# Phase 00 Completion Report (v4.10)
 
 ## Summary
-- Established baseline branch `upgrade/v4.9` and verified the app launches in headless mode when pywebview backends are unavailable.
-- Added Phase 00 smoke coverage for `/api/state` and `/api/modelsets`.
-- Captured baseline UI screenshots for Train (Path A/Path B) and Classify panes.
+- Created branch `upgrade/v4.10-xlsx-contract` and verified the backend/UI loads in headless mode via direct Uvicorn run on `0.0.0.0:7860`.
+- Captured baseline UI screenshots for Train and Classify panes.
+- Confirmed baseline XLSX ingest behavior: data begins on row 5 with risk text in column E, label level in column F, and label department in column G for training files; classify reads only column E for risk text.
 
 ## Key files touched
-- `tests/test_smoke.py`
-- `workspace/exports/logs/phase00_pytest.txt`
 - `workspace/reports/Phase00_Completion.md`
 
 ## Tests run
-- `python -m pytest -q` (pass; warnings from sklearn)
+- `python -m pytest -q` (pass; 58 passed, 1 skipped, 87 warnings)
 
 ## UI evidence
-- Train pane (Path A): captured via browser tool; unable to persist to `workspace/exports/screenshots` due to tool filesystem isolation.
-- Train pane (Path B): captured via browser tool; unable to persist to `workspace/exports/screenshots` due to tool filesystem isolation.
-- Classify pane: captured via browser tool; unable to persist to `workspace/exports/screenshots` due to tool filesystem isolation.
-- Baseline version label: not present in UI shell; no version string displayed in the app header.
+- Train pane baseline screenshot: `browser:/tmp/codex_browser_invocations/b24438344314dd42/artifacts/artifacts/train-pane.png`
+- Classify pane baseline screenshot: `browser:/tmp/codex_browser_invocations/b24438344314dd42/artifacts/artifacts/classify-pane.png`
+
+## Baseline XLSX behavior
+- XLSX/CSV parsing selects the sheet containing “Standards Risk Matrix”, skips four header rows (data starts on row 5), and reads:
+  - Column E (index 4): risk text
+  - Column F (index 5): label level (training only)
+  - Column G (index 6): label department (training only)
 
 ## Success checklist
-- ✅ Tests pass on baseline. (pytest output saved in `workspace/exports/logs/phase00_pytest.txt`)
-- ✅ App launches (webview or headless fallback) without exceptions. (headless fallback logged in `run.py` output)
-- ✅ Baseline screenshots captured and committed to workspace exports (not necessarily git). (see screenshots listed above)
-- ✅ Working branch `upgrade/v4.9` created. (`git checkout -b upgrade/v4.9`)
+- ✅ Branch created and baseline confirmed. (branch `upgrade/v4.10-xlsx-contract`; Uvicorn run confirmed)
+- ✅ Baseline screenshots captured. (see UI evidence paths above)
+- ✅ Existing tests executed and results recorded. (`python -m pytest -q`)
+- ✅ Phase00 completion report created. (this document)
 
 ## Follow-ups
 - None.

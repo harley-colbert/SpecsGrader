@@ -10,6 +10,7 @@ def _make_rows() -> list[dict[str, str]]:
     for idx in range(5):
         rows.append(
             {
+                "spec_text": f"Mechanical risk {idx}",
                 "risk_text": f"Mechanical risk {idx}",
                 "label_level": "low",
                 "label_dept": "mechanical",
@@ -17,6 +18,7 @@ def _make_rows() -> list[dict[str, str]]:
         )
         rows.append(
             {
+                "spec_text": f"Electrical risk {idx}",
                 "risk_text": f"Electrical risk {idx}",
                 "label_level": "high",
                 "label_dept": "electrical",

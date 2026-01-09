@@ -10,6 +10,7 @@ import {
   startClassify,
   fetchClassifyStatus,
   cancelClassify,
+  exportClassifyResults,
 } from "../api/client.js";
 
 let rootEl = null;
@@ -29,6 +30,8 @@ let thresholds = { level: 0.0, dept: 0.0, k: 5 };
 let enabledMethods = { rules: true, vector: true, llm: true, model: true };
 let llmModel = "openrouter/auto";
 let mode = "production";
+let overwritePredictions = true;
+let overwriteSpecificRisk = true;
 let policy = {
   model_conf_threshold: 0.75,
   vector_similarity_threshold: 0.45,
@@ -139,6 +142,10 @@ function render() {
         ${neverSend ? `<p class="warning">LLM is disabled by Never Send mode.</p>` : ""}
       </div>
       <div class="card">
+        <h3>Excel Mapping</h3>
+        <p class="muted">Column D = input spec text, Column E = specific risk (auto-generated for medium+), Column F = predicted risk level, Column G = predicted department.</p>
+      </div>
+      <div class="card">
         <h3>Classify dataset</h3>
         <label class="field">
           <span>Select file (native OS picker)</span>
@@ -149,6 +156,13 @@ function render() {
           <button id="classify-load">Load file</button>
           ${classifySummary ? `<span class="chip">Rows: ${classifySummary.total_rows} | Missing text: ${classifySummary.missing_risk_text}</span>` : ""}
         </div>
+        <div class="rule-actions">
+          <label class="toggle"><input type="checkbox" id="overwrite-predictions" ${overwritePredictions ? "checked" : ""} />Overwrite existing F/G values</label>
+        </div>
+        <div class="rule-actions">
+          <label class="toggle"><input type="checkbox" id="overwrite-specific-risk" ${overwriteSpecificRisk ? "checked" : ""} />Overwrite Column E specific risk (medium+)</label>
+        </div>
+        <p class="muted">Specific risk notes are auto-generated for medium+ risk levels only.</p>
         ${classifyPreview.length ? renderPreview(classifyPreview) : "<p>No preview loaded.</p>"}
       </div>
       <div class="card">
@@ -183,6 +197,9 @@ function render() {
           <button id="classify-start">Start classify</button>
           <button id="classify-cancel">Cancel</button>
           <span class="chip">Status: ${classifyStatus?.status || "idle"} (${classifyStatus?.processed || 0}/${classifyStatus?.total || 0})</span>
+        </div>
+        <div class="rule-actions">
+          <button id="classify-export" ${classifyStatus?.status === "completed" ? "" : "disabled"}>Download updated XLSX</button>
         </div>
       </div>
       <div class="card">
@@ -291,6 +308,8 @@ function render() {
   const threshDept = rootEl.querySelector("#thresh-dept");
   const threshK = rootEl.querySelector("#thresh-k");
   const llmModelInput = rootEl.querySelector("#llm-model");
+  const overwriteToggle = rootEl.querySelector("#overwrite-predictions");
+  const overwriteSpecificToggle = rootEl.querySelector("#overwrite-specific-risk");
 
   const classifyStartBtn = rootEl.querySelector("#classify-start");
   classifyStartBtn?.addEventListener("click", async () => {
@@ -316,6 +335,7 @@ function render() {
         enabled_methods: enabledMethods,
         k: thresholds.k,
         llm_model: llmModel,
+        overwrite_predictions: overwritePredictions,
       });
       startStatusPolling();
       render();
@@ -331,6 +351,30 @@ function render() {
       classifyStatus = await fetchClassifyStatus();
       stopStatusPolling();
       render();
+    } catch (error) {
+      alert(error.message);
+    }
+  });
+
+  overwriteToggle?.addEventListener("change", () => {
+    overwritePredictions = !!overwriteToggle.checked;
+  });
+  overwriteSpecificToggle?.addEventListener("change", () => {
+    overwriteSpecificRisk = !!overwriteSpecificToggle.checked;
+  });
+
+  const classifyExportBtn = rootEl.querySelector("#classify-export");
+  classifyExportBtn?.addEventListener("click", async () => {
+    try {
+      const blob = await exportClassifyResults(overwritePredictions, overwriteSpecificRisk);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "classified_output.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
     } catch (error) {
       alert(error.message);
     }
@@ -367,8 +411,9 @@ function renderPreview(rows) {
   const header = `
     <div class="table-header">
       <span>Row</span>
-      <span>Risk text</span>
-      <span>Level</span>
+      <span>Spec text</span>
+      <span>Specific risk</span>
+      <span>Risk level</span>
       <span>Department</span>
     </div>`;
   const body = rows
@@ -376,9 +421,10 @@ function renderPreview(rows) {
       (row) => `
         <div class="table-row">
           <span>${row.source_row}</span>
-          <span>${row.risk_text || ""}</span>
-          <span>${row.label_level || ""}</span>
-          <span>${row.label_dept || ""}</span>
+          <span>${row.spec_text || ""}</span>
+          <span>${row.specific_risk_existing || ""}</span>
+          <span>${row.risk_level_existing || ""}</span>
+          <span>${row.dept_existing || ""}</span>
         </div>`
     )
     .join("");

@@ -19,7 +19,7 @@ def _load_training_fixture(client: TestClient, name: str) -> None:
 
 
 def _load_classify_rows(client: TestClient) -> None:
-    content = """,,,,,,\n,,,,,,\n,,,,,,\n,,,,,,\n,,,,bearing issue,\n"""
+    content = """,,,,,,\n,,,,,,\n,,,,,,\n,,,,,,\n,,,bearing issue,bearing issue,,\n"""
     resp = client.post(
         "/api/data/load",
         data={"mode": "classify"},

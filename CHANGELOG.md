@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.10
+- XLSX contract update: D=input spec, E=specific risk (medium+ only), F=risk level, G=department.
+- Classification writes back F/G predictions and optional E specific-risk notes.
+- Training pipeline updated to use spec text (D) and validated labels (F/G).
+- Removed the tracked SpecsGraderv4.10.zip binary archive from the repository.
+
 ## 4.9
 - Dataset health checks with imbalance warnings and blocking errors.
 - Per-class validation metrics with confusion matrices.

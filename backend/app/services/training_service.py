@@ -18,7 +18,8 @@ from sklearn.pipeline import Pipeline
 
 from backend.app.services.rule_service import RuleService
 from backend.app.services.aggregate_service import aggregate_outputs
-from backend.app.services.ingest_service import DEPARTMENTS, RISK_LEVELS
+from backend.app.config.xlsx_contract import RISK_LEVELS, RISK_ORDER, normalize_risk_level
+from backend.app.services.ingest_service import DEPARTMENTS
 from backend.app.label_policy import load_label_policy
 from backend.app.vector.vector_store import VectorStore
 from backend.app.vector.embedder import EmbedderConfig
@@ -113,25 +114,58 @@ class TrainingService:
         ordered.update(dict(sorted(extras.items(), key=lambda kv: (-kv[1], kv[0]))))
         return ordered
 
+    @staticmethod
+    def _training_text(row: Dict[str, object]) -> str:
+        return str(row.get("spec_text") or "").strip()
+
+    @staticmethod
+    def _label_value(row: Dict[str, object], label_key: str) -> str:
+        if label_key == "label_level":
+            return normalize_risk_level(row.get(label_key)) or ""
+        return str(row.get(label_key) or "").strip().lower()
+
+    @classmethod
+    def _valid_rows(
+        cls,
+        rows: List[Dict[str, object]],
+        label_key: str,
+        valid_labels: set[str],
+    ) -> List[Dict[str, object]]:
+        valid_rows = []
+        for row in rows:
+            text = cls._training_text(row)
+            if not text:
+                continue
+            label_value = cls._label_value(row, label_key)
+            if label_value in valid_labels:
+                normalized = dict(row)
+                normalized["spec_text"] = text
+                normalized[label_key] = label_value
+                valid_rows.append(normalized)
+        return valid_rows
+
     def _compute_stats(self, rows: List[Dict[str, object]]) -> Dict[str, Any]:
         total_rows = len(rows)
         missing_risk_text = 0
         missing_level = 0
         missing_dept = 0
         labeled_rows: List[Dict[str, object]] = []
+        level_rows = self._valid_rows(rows, "label_level", RISK_LEVELS)
+        dept_rows = self._valid_rows(rows, "label_dept", DEPARTMENTS)
         for r in rows:
-            if not r.get("risk_text"):
+            text = self._training_text(r)
+            if not text:
                 missing_risk_text += 1
-            if not r.get("label_level"):
+            if text and self._label_value(r, "label_level") not in RISK_LEVELS:
                 missing_level += 1
-            if not r.get("label_dept"):
+            if text and self._label_value(r, "label_dept") not in DEPARTMENTS:
                 missing_dept += 1
-            if r.get("risk_text") and r.get("label_level") and r.get("label_dept"):
+            if text and self._label_value(r, "label_level") in RISK_LEVELS and self._label_value(r, "label_dept") in DEPARTMENTS:
                 labeled_rows.append(r)
 
-        label_distribution_level = self._label_distribution(labeled_rows, "label_level")
-        label_distribution_dept = self._label_distribution(labeled_rows, "label_dept")
-        expected_levels = sorted(RISK_LEVELS)
+        label_distribution_level = self._label_distribution(level_rows, "label_level")
+        label_distribution_dept = self._label_distribution(dept_rows, "label_dept")
+        expected_levels = list(RISK_ORDER)
         expected_depts = sorted(DEPARTMENTS)
         ordered_level = self._ordered_distribution(label_distribution_level, expected_levels)
         ordered_dept = self._ordered_distribution(label_distribution_dept, expected_depts)
@@ -142,9 +176,9 @@ class TrainingService:
             blocking_errors.append("No rows loaded.")
         if missing_risk_text == total_rows and total_rows > 0:
             blocking_errors.append("All rows are missing risk text.")
-        if missing_level == total_rows and total_rows > 0:
+        if level_rows == [] and total_rows > 0 and missing_risk_text < total_rows:
             blocking_errors.append("All rows are missing risk level labels.")
-        if missing_dept == total_rows and total_rows > 0:
+        if dept_rows == [] and total_rows > 0 and missing_risk_text < total_rows:
             blocking_errors.append("All rows are missing department labels.")
         if len(labeled_rows) == 0 and total_rows > 0:
             blocking_errors.append("No fully labeled rows available for training.")
@@ -383,13 +417,14 @@ class TrainingService:
             self._update_job(phase="validating_data", message="Validating training data", progress=0.12)
             self._log_event("Validating training data")
 
-            filtered = [r for r in rows if r.get("risk_text") and r.get("label_level") and r.get("label_dept")]
-            if not filtered:
+            level_rows = self._valid_rows(rows, "label_level", RISK_LEVELS)
+            dept_rows = self._valid_rows(rows, "label_dept", DEPARTMENTS)
+            if not level_rows or not dept_rows:
                 raise ValueError("No labeled training data loaded")
 
             pre_dist = {
-                "level": self._label_distribution(filtered, "label_level"),
-                "dept": self._label_distribution(filtered, "label_dept"),
+                "level": self._label_distribution(level_rows, "label_level"),
+                "dept": self._label_distribution(dept_rows, "label_dept"),
             }
             self._update_job(stats={**(self.app_state.training_job.get("stats") or {}), "preprocess_distribution": pre_dist})
             self._log_event("Computed initial label distribution", data=pre_dist)
@@ -402,33 +437,35 @@ class TrainingService:
                     "Oversampling enabled",
                     data={"cap_ratio": params.oversample_cap_ratio},
                 )
-                filtered = self.oversample_rows(filtered, "label_level", params.oversample_cap_ratio)
-                filtered = self.oversample_rows(filtered, "label_dept", params.oversample_cap_ratio)
+                level_rows = self.oversample_rows(level_rows, "label_level", params.oversample_cap_ratio)
+                dept_rows = self.oversample_rows(dept_rows, "label_dept", params.oversample_cap_ratio)
 
             self._check_cancel()
 
             self._update_job(phase="ensuring_minimums", message="Ensuring minimum examples per class", progress=0.24)
-            filtered = self.ensure_minimum_per_class(filtered, "label_level", min_required=2)
-            filtered = self.ensure_minimum_per_class(filtered, "label_dept", min_required=2)
+            level_rows = self.ensure_minimum_per_class(level_rows, "label_level", min_required=2)
+            dept_rows = self.ensure_minimum_per_class(dept_rows, "label_dept", min_required=2)
 
             post_dist = {
-                "level": self._label_distribution(filtered, "label_level"),
-                "dept": self._label_distribution(filtered, "label_dept"),
+                "level": self._label_distribution(level_rows, "label_level"),
+                "dept": self._label_distribution(dept_rows, "label_dept"),
             }
-            self._update_job(stats={**(self.app_state.training_job.get("stats") or {}), "training_distribution": post_dist, "trained_on_rows": len(filtered)})
+            trained_row_count = min(len(level_rows), len(dept_rows))
+            self._update_job(stats={**(self.app_state.training_job.get("stats") or {}), "training_distribution": post_dist, "trained_on_rows": trained_row_count})
             self._log_event("Final training distribution prepared", data=post_dist)
 
             self._check_cancel()
 
-            texts = [str(r.get("risk_text")) for r in filtered]
-            levels = [str(r.get("label_level")) for r in filtered]
-            depts = [str(r.get("label_dept")) for r in filtered]
-            dataset_snapshot_hash = self._dataset_snapshot_hash(filtered)
+            level_texts = [self._training_text(r) for r in level_rows]
+            level_labels = [str(r.get("label_level")) for r in level_rows]
+            dept_texts = [self._training_text(r) for r in dept_rows]
+            dept_labels = [str(r.get("label_dept")) for r in dept_rows]
+            dataset_snapshot_hash = self._dataset_snapshot_hash(level_rows + dept_rows)
 
             insights_level_pipeline = self._build_uncalibrated_pipeline(params.use_class_weight_balanced)
             insights_dept_pipeline = self._build_uncalibrated_pipeline(params.use_class_weight_balanced)
-            insights_level_pipeline.fit(texts, levels)
-            insights_dept_pipeline.fit(texts, depts)
+            insights_level_pipeline.fit(level_texts, level_labels)
+            insights_dept_pipeline.fit(dept_texts, dept_labels)
 
             # Build initial calibrated pipelines
             level_pipeline = self._build_pipeline(params.calibration_method, params.use_class_weight_balanced)
@@ -441,7 +478,7 @@ class TrainingService:
                 cv_status={"label": "level", "current_fold": 0, "total_folds": params.cv_folds},
             )
             self._log_event("Cross-validation started", data={"label": "level", "folds": params.cv_folds})
-            cv_level = self._run_cv(texts, levels, params, "level")
+            cv_level = self._run_cv(level_texts, level_labels, params, "level")
 
             self._check_cancel()
 
@@ -452,7 +489,7 @@ class TrainingService:
                 cv_status={"label": "dept", "current_fold": 0, "total_folds": params.cv_folds},
             )
             self._log_event("Cross-validation started", data={"label": "dept", "folds": params.cv_folds})
-            cv_dept = self._run_cv(texts, depts, params, "dept")
+            cv_dept = self._run_cv(dept_texts, dept_labels, params, "dept")
 
             cv_metrics = {"level": cv_level, "dept": cv_dept}
             self._update_job(cv_metrics=cv_metrics, cv_status=None)
@@ -466,7 +503,7 @@ class TrainingService:
             )
             self._log_event("Fitting risk level model")
             try:
-                level_pipeline.fit(texts, levels)
+                level_pipeline.fit(level_texts, level_labels)
             except ValueError as exc:
                 # New in v4.5: if calibration cannot run because there are too few
                 # examples per class for the requested cross-validation strategy,
@@ -478,7 +515,7 @@ class TrainingService:
                         data={"error": str(exc)},
                     )
                     level_pipeline = self._build_uncalibrated_pipeline(params.use_class_weight_balanced)
-                    level_pipeline.fit(texts, levels)
+                    level_pipeline.fit(level_texts, level_labels)
                 else:
                     raise
 
@@ -492,7 +529,7 @@ class TrainingService:
             )
             self._log_event("Fitting department model")
             try:
-                dept_pipeline.fit(texts, depts)
+                dept_pipeline.fit(dept_texts, dept_labels)
             except ValueError as exc:
                 if "less than 2 examples for at least one class" in str(exc):
                     self._log_event(
@@ -501,7 +538,7 @@ class TrainingService:
                         data={"error": str(exc)},
                     )
                     dept_pipeline = self._build_uncalibrated_pipeline(params.use_class_weight_balanced)
-                    dept_pipeline.fit(texts, depts)
+                    dept_pipeline.fit(dept_texts, dept_labels)
                 else:
                     raise
 
@@ -510,11 +547,11 @@ class TrainingService:
             self._update_job(phase="evaluating", message="Evaluating training set performance", progress=0.78)
             self._log_event("Evaluating models")
 
-            level_preds = level_pipeline.predict(texts)
-            dept_preds = dept_pipeline.predict(texts)
+            level_preds = level_pipeline.predict(level_texts)
+            dept_preds = dept_pipeline.predict(dept_texts)
             metrics = {
-                "level": self._compute_detailed_metrics(levels, list(level_preds)),
-                "dept": self._compute_detailed_metrics(depts, list(dept_preds)),
+                "level": self._compute_detailed_metrics(level_labels, list(level_preds)),
+                "dept": self._compute_detailed_metrics(dept_labels, list(dept_preds)),
             }
 
             self._update_job(metrics=metrics)
@@ -551,10 +588,10 @@ class TrainingService:
                     },
                     "artifacts": artifacts,
                 },
-                "trained_on_rows": len(filtered),
+                "trained_on_rows": trained_row_count,
                 "label_distribution": {
-                    "level": {label: levels.count(label) for label in set(levels)},
-                    "dept": {label: depts.count(label) for label in set(depts)},
+                    "level": {label: level_labels.count(label) for label in set(level_labels)},
+                    "dept": {label: dept_labels.count(label) for label in set(dept_labels)},
                 },
                 "imbalance": {
                     "class_weight_balanced": params.use_class_weight_balanced,
@@ -664,7 +701,9 @@ class TrainingService:
         return [
             r
             for r in rows
-            if r.get("risk_text") and r.get("label_level") and r.get("label_dept")
+            if self._training_text(r)
+            and self._label_value(r, "label_level") in RISK_LEVELS
+            and self._label_value(r, "label_dept") in DEPARTMENTS
         ]
 
     @staticmethod
@@ -700,7 +739,7 @@ class TrainingService:
             return {"available": False, "n_rows": 0}
 
         vector_k_values = vector_k_values or [1]
-        labels = [str(r.get("label_level")) for r in rows]
+        labels = [self._label_value(r, "label_level") for r in rows]
         warnings: List[str] = []
         stratify = labels if len(set(labels)) > 1 else None
         if len(rows) * test_size < 1:
@@ -730,13 +769,13 @@ class TrainingService:
                 strategy = "random_split"
                 warnings.append("Stratified split unavailable; used random split.")
 
-        train_texts = [str(r.get("risk_text")) for r in train_rows]
-        train_levels = [str(r.get("label_level")) for r in train_rows]
-        train_depts = [str(r.get("label_dept")) for r in train_rows]
+        train_texts = [self._training_text(r) for r in train_rows]
+        train_levels = [self._label_value(r, "label_level") for r in train_rows]
+        train_depts = [self._label_value(r, "label_dept") for r in train_rows]
 
-        test_texts = [str(r.get("risk_text")) for r in test_rows]
-        expected_levels = [str(r.get("label_level")) for r in test_rows]
-        expected_depts = [str(r.get("label_dept")) for r in test_rows]
+        test_texts = [self._training_text(r) for r in test_rows]
+        expected_levels = [self._label_value(r, "label_level") for r in test_rows]
+        expected_depts = [self._label_value(r, "label_dept") for r in test_rows]
 
         if len(set(train_levels)) < 2 or len(set(train_depts)) < 2:
             return {

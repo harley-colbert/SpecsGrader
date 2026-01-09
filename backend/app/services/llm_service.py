@@ -5,7 +5,8 @@ from typing import Dict, Optional
 
 import requests
 
-RISK_LEVELS = {"none", "low", "medium", "high", "extreme"}
+from backend.app.config.xlsx_contract import RISK_LEVELS, normalize_risk_level
+
 DEPARTMENTS = {"mechanical", "electrical", "controls", "project_management"}
 
 
@@ -23,7 +24,7 @@ class LLMService:
 
     @staticmethod
     def _validate_payload(payload: Dict[str, object]) -> LlmPrediction:
-        level = (payload.get("risk_level") or "").lower()
+        level = normalize_risk_level(payload.get("risk_level"))
         dept = (payload.get("department") or "").lower()
         confidence = payload.get("confidence")
         reason = payload.get("reason")

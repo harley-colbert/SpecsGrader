@@ -1,34 +1,33 @@
-# Phase 05 Completion Report — Label Policy Definitions
+# Phase 05 Completion Report (v4.10)
 
 ## Summary
-- Added a single source-of-truth label policy with defaults and modelset overrides, plus endpoints to retrieve/update it.
-- Persisted label policy into ModelSet snapshots, exports/imports, and training bundle metadata.
-- Exposed label definitions in Train and Classify panes via a compact expandable panel.
+- Added a deterministic, local-specific risk generator gated by medium+ risk levels.
+- Updated XLSX export to populate Column E for medium+ and clear E for none/low, with overwrite control.
+- Added unit and XLSX integration tests plus a new fixture for specific-risk behavior.
 
 ## Key files touched
-- `backend/app/label_policy.py`
+- `backend/app/services/specific_risk_service.py`
+- `backend/app/services/xlsx_output_service.py`
 - `backend/app/main.py`
-- `backend/app/services/modelset_service.py`
-- `backend/app/services/training_service.py`
 - `frontend/src/api/client.js`
-- `frontend/src/panes/trainPane.js`
 - `frontend/src/panes/classifyPane.js`
-- `frontend/styles.css`
-- `tests/test_label_policy.py`
-- `tests/test_sgm_io.py`
+- `tests/fixtures/xlsx/contract_v410_specific_risk_in.xlsx`
+- `tests/test_specific_risk_generator.py`
+- `tests/test_xlsx_writes_E_for_medium_plus.py`
+- `workspace/reports/Phase05_Completion.md`
 
 ## Tests run
-- `python -m pytest -q` (pass)
+- `python -m pytest -q` (pass; 74 passed, 1 skipped, 75 warnings)
 
 ## UI evidence
-- Train pane shows a “Label definitions” card; expanding the details reveals risk and department definitions.
-- Classify pane shows the same label policy panel.
-- Screenshot captured: `artifacts/phase05_label_policy_train.png`.
+- Classify pane (overwrite toggles + export button) captured via Playwright: `browser:/tmp/codex_browser_invocations/cec3337b0f632094/artifacts/artifacts/phase05-classify.png`
 
 ## Success checklist
-- ✅ Label definitions visible in UI. (Train/Classify panes include expandable “Label definitions” panel.)
-- ✅ Label policy included in exports/imports. (ModelSet exports include `label_policy.json`, import restores it.)
-- ✅ Tests confirm policy endpoint and persistence. (`tests/test_label_policy.py`, `tests/test_sgm_io.py`.)
+- ✅ Column E is derived only when F is medium/high/extreme. (Generator gated by `is_medium_plus`.)
+- ✅ Column E is blank when F is none/low. (Export clears Column E for low/none.)
+- ✅ Generator is deterministic and offline. (Template-based generator with deterministic hooks.)
+- ✅ Overwrite policy for E is implemented and tested. (Overwrite toggle and XLSX tests.)
+- ✅ XLSX tests validate E behavior. (Specific risk XLSX tests added.)
 
 ## Follow-ups
 - None.

@@ -168,6 +168,19 @@ export async function fetchResults(limit = 20, offset = 0) {
   return request(`/api/results/rows?${params.toString()}`);
 }
 
+export async function exportClassifyResults(overwrite_predictions = true, overwrite_specific_risk = true) {
+  const resp = await fetch("/api/classify/export", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ overwrite_predictions, overwrite_specific_risk }),
+  });
+  if (!resp.ok) {
+    const detail = await resp.text();
+    throw new Error(detail || "Failed to export classify results");
+  }
+  return resp.blob();
+}
+
 export async function fetchSettings() {
   return request("/api/settings");
 }

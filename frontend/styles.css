@@ -519,6 +519,11 @@ button.danger:disabled {
   font-size: 0.9rem;
 }
 
+.excel-mapping {
+  margin-top: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
 .progress-row {
   display: flex;
   gap: 0.75rem;

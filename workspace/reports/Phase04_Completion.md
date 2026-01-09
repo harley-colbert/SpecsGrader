@@ -1,31 +1,31 @@
-# Phase 04 Completion Report
+# Phase 04 Completion Report (v4.10)
 
 ## Summary
-- Extended classification trace evidence with rules, model probability/terms, and vector neighbor details.
-- Added per-row “Why?” expanders in Results to render trace evidence with concise sections.
-- Added explanation trace tests to validate evidence presence for rules, vector, and model outputs.
+- Updated classification to use column D (spec text) as the input for predictions and capture per-row outputs.
+- Added XLSX export support to write predicted risk level/department into columns F/G with overwrite control.
+- Added UI controls for overwrite behavior and download, plus XLSX integration tests for the write-back policy.
 
 ## Key files touched
-- `backend/app/services/aggregate_service.py`
-- `backend/app/services/model_inference_service.py`
-- `backend/app/services/training_service.py`
-- `backend/app/services/modelset_service.py`
 - `backend/app/main.py`
-- `frontend/src/panes/resultsPane.js`
-- `frontend/styles.css`
+- `backend/app/services/xlsx_output_service.py`
+- `frontend/src/api/client.js`
+- `frontend/src/panes/classifyPane.js`
+- `tests/fixtures/xlsx/contract_v410_classify_in.xlsx`
+- `tests/test_xlsx_classify_writes_FG.py`
 - `tests/test_explanations_trace.py`
 - `workspace/reports/Phase04_Completion.md`
 
 ## Tests run
-- `python -m pytest -q` (pass; warnings from sklearn)
+- `python -m pytest -q` (pass; 68 passed, 1 skipped, 75 warnings)
 
 ## UI evidence
-- Results pane “Why?” expanders: screenshot captured with browser tool.
+- Attempted to capture Classify pane controls via Playwright, but the browser tool timed out in this environment (no screenshot artifact produced).
 
 ## Success checklist
-- ✅ Every classified row includes `trace` with winner and evidence.
-- ✅ UI displays a clear, readable explanation without clutter.
-- ✅ Tests prove trace exists and contains evidence when available.
+- ✅ Classification uses Column D only. (Classify worker uses `spec_text` as input.)
+- ✅ Outputs are written to F and G for each classified row. (XLSX export writes predictions into F/G.)
+- ✅ Overwrite rules are implemented, documented, and tested. (Overwrite toggle and tests for both behaviors.)
+- ✅ Tests confirm workbook round-trip correctness. (XLSX write-back tests verify F/G values.)
 
 ## Follow-ups
 - None.
