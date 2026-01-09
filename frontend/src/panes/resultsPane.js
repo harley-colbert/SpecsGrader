@@ -1,4 +1,4 @@
-import { fetchResults } from "../api/client.js";
+import { exportClassifyResults, fetchResults } from "../api/client.js";
 
 let rootEl = null;
 let results = null;
@@ -70,6 +70,55 @@ async function downloadCsv(rows) {
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
+}
+
+function buildClassifyFilename() {
+  const stamp = new Date().toISOString().slice(0, 10);
+  return `results_classified_${stamp}.xlsx`;
+}
+
+export async function downloadXlsxWithPicker(overwritePredictions, overwriteSpecificRisk) {
+  const suggestedName = buildClassifyFilename();
+  try {
+    const blob = await exportClassifyResults(overwritePredictions, overwriteSpecificRisk);
+    if (window.showSaveFilePicker) {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName,
+          types: [
+            {
+              description: "Excel workbook",
+              accept: {
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+              },
+            },
+          ],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        return;
+      } catch (error) {
+        if (error?.name === "AbortError") {
+          alert("Export canceled.");
+          return;
+        }
+        alert("Unable to save the XLSX file.");
+        return;
+      }
+    }
+
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = suggestedName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    alert(error?.message || "Unable to export the XLSX file.");
+  }
 }
 
 function renderEvidenceList(items, formatter) {

@@ -10,8 +10,8 @@ import {
   startClassify,
   fetchClassifyStatus,
   cancelClassify,
-  exportClassifyResults,
 } from "../api/client.js";
+import { downloadXlsxWithPicker } from "./resultsPane.js";
 
 let rootEl = null;
 let stateCache = null;
@@ -365,19 +365,7 @@ function render() {
 
   const classifyExportBtn = rootEl.querySelector("#classify-export");
   classifyExportBtn?.addEventListener("click", async () => {
-    try {
-      const blob = await exportClassifyResults(overwritePredictions, overwriteSpecificRisk);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "classified_output.xlsx";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      alert(error.message);
-    }
+    await downloadXlsxWithPicker(overwritePredictions, overwriteSpecificRisk);
   });
 
   const vectorBtn = rootEl.querySelector("#vector-run");
