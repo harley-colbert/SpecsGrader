@@ -10,7 +10,6 @@ import {
   startClassify,
   fetchClassifyStatus,
   cancelClassify,
-  exportClassifyResults,
 } from "../api/client.js";
 
 let rootEl = null;
@@ -198,9 +197,6 @@ function render() {
           <button id="classify-cancel">Cancel</button>
           <span class="chip">Status: ${classifyStatus?.status || "idle"} (${classifyStatus?.processed || 0}/${classifyStatus?.total || 0})</span>
         </div>
-        <div class="rule-actions">
-          <button id="classify-export" ${classifyStatus?.status === "completed" ? "" : "disabled"}>Download updated XLSX</button>
-        </div>
       </div>
       <div class="card">
         <h3>Vector test</h3>
@@ -361,23 +357,6 @@ function render() {
   });
   overwriteSpecificToggle?.addEventListener("change", () => {
     overwriteSpecificRisk = !!overwriteSpecificToggle.checked;
-  });
-
-  const classifyExportBtn = rootEl.querySelector("#classify-export");
-  classifyExportBtn?.addEventListener("click", async () => {
-    try {
-      const blob = await exportClassifyResults(overwritePredictions, overwriteSpecificRisk);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "classified_output.xlsx";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      alert(error.message);
-    }
   });
 
   const vectorBtn = rootEl.querySelector("#vector-run");
